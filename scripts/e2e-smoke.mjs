@@ -6,6 +6,8 @@
 //
 // Env: BASE_URL (default http://127.0.0.1:5173), TEST_EMAIL, TEST_PASSWORD,
 //      CHROMIUM_PATH (optional explicit browser binary), SHOT_DIR (screenshots).
+// Playwright is intentionally not a package dependency (its postinstall downloads
+// browsers) — run `npm i -D playwright` once before using this script.
 // Note: requires an environment with direct network access to your Supabase URL.
 import { chromium } from 'playwright'
 
