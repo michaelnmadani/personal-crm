@@ -8,3 +8,5 @@ dev-dist/
 tsconfig.tsbuildinfo
 release/
 build/
+public/icon-*.png
+public/apple-touch-icon.png
