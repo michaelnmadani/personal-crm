@@ -6,6 +6,12 @@ const path = require('node:path')
 const isDev = !!process.env.ELECTRON_DEV
 let autoUpdater = null
 
+// When set, the shell loads the live web app from this URL, so every launch runs
+// the latest deployed version — no reinstall needed. If the URL can't be reached
+// (offline), it falls back to the copy bundled inside the app. Leave '' to always
+// use the bundled copy.
+const REMOTE_URL = ''
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
@@ -23,10 +29,17 @@ function createWindow() {
 
   win.once('ready-to-show', () => win.show())
 
+  const loadBundled = () => win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   if (isDev) {
     win.loadURL('http://127.0.0.1:5173')
+  } else if (REMOTE_URL) {
+    // Live-load the hosted app; if unreachable (offline), use the bundled copy.
+    win.webContents.on('did-fail-load', (_e, errorCode, _desc, _url, isMainFrame) => {
+      if (isMainFrame && errorCode !== -3 /* aborted */) loadBundled()
+    })
+    win.loadURL(REMOTE_URL)
   } else {
-    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+    loadBundled()
   }
 
   // Open mailto:/tel:/https links (from contact cards) in the real browser or
@@ -36,7 +49,11 @@ function createWindow() {
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith('file:') && !url.startsWith('http://127.0.0.1')) {
+    const allowed =
+      url.startsWith('file:') ||
+      url.startsWith('http://127.0.0.1') ||
+      (REMOTE_URL && url.startsWith(REMOTE_URL))
+    if (!allowed) {
       e.preventDefault()
       shell.openExternal(url)
     }
