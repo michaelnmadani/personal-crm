@@ -6,3 +6,5 @@ dev-dist/
 *.local
 .DS_Store
 tsconfig.tsbuildinfo
+release/
+build/

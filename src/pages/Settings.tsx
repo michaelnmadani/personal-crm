@@ -46,12 +46,20 @@ export function Settings() {
       </section>
 
       <section className={`${card} p-4 space-y-2`}>
-        <h2 className="text-sm font-semibold text-slate-300">Install on this device</h2>
-        <p className="text-sm text-slate-400">
-          <strong>Phone:</strong> open this site in Safari/Chrome → Share → “Add to Home Screen”.
-          <br />
-          <strong>Mac / PC:</strong> in Chrome or Edge, click the install icon in the address bar.
-        </p>
+        <h2 className="text-sm font-semibold text-slate-300">This device</h2>
+        {window.desktop?.isDesktop ? (
+          <p className="text-sm text-slate-400">
+            Running as the desktop app (Electron {window.desktop.electron}). It updates itself
+            automatically — you’ll be prompted to restart when a new version is ready.
+          </p>
+        ) : (
+          <p className="text-sm text-slate-400">
+            <strong>Phone:</strong> open this site in Safari/Chrome → Share → “Add to Home Screen”.
+            <br />
+            <strong>Mac / PC:</strong> install the desktop app from the latest release, or use your
+            browser’s “Install app” option.
+          </p>
+        )}
       </section>
     </div>
   )

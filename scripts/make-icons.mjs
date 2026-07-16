@@ -1,7 +1,7 @@
 // Generates the PWA icons (a small network-graph motif) with zero dependencies:
 // raw RGBA pixels hand-encoded into PNG via zlib.
 import { deflateSync } from 'node:zlib'
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   let c = n
@@ -101,10 +101,13 @@ function render(size) {
   return buf
 }
 
+mkdirSync('build', { recursive: true })
+
 for (const [file, size] of [
   ['public/icon-192.png', 192],
   ['public/icon-512.png', 512],
   ['public/apple-touch-icon.png', 180],
+  ['build/icon.png', 1024], // electron-builder derives the .icns / .ico from this
 ]) {
   writeFileSync(file, png(size, render(size)))
   console.log(`wrote ${file}`)

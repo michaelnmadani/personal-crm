@@ -1,0 +1,36 @@
+name: Release desktop app
+
+# Push a version tag (e.g. v0.1.0) to build the Mac .dmg and Windows .exe on
+# real macOS/Windows runners and publish them to a GitHub Release. The installed
+# app then auto-updates itself from that release feed.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm install
+
+      - name: Build and publish installer
+        run: npm run electron:release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No Apple certificate yet → build unsigned instead of failing.
+          # To ship a signed, auto-updating Mac app, add CSC_LINK + CSC_KEY_PASSWORD
+          # secrets and remove this line. See RELEASING.md.
+          CSC_IDENTITY_AUTO_DISCOVERY: false

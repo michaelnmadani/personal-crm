@@ -1,0 +1,30 @@
+appId: com.michaelnmadani.personalcrm
+productName: Personal CRM
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - electron/**
+mac:
+  target:
+    - target: dmg
+      arch: [universal]   # one download runs on both Apple Silicon and Intel Macs
+    - target: zip
+      arch: [universal]   # zip is what auto-update downloads on macOS
+  category: public.app-category.productivity
+  icon: build/icon.png
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+# Where the app looks for new versions, and where CI publishes installers.
+publish:
+  provider: github
+  owner: michaelnmadani
+  repo: personal-crm
