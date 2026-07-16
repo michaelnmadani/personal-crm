@@ -45,6 +45,17 @@ export type Fact = {
   value: string
 }
 
+export type WorkHistory = {
+  id: string
+  contact_id: string
+  company: string
+  title: string | null
+  start_year: number | null
+  end_year: number | null
+  is_current: boolean
+  notes: string | null
+}
+
 export type InteractionKind = 'meeting' | 'call' | 'email' | 'message' | 'event' | 'note'
 
 export type ParticipantRef = {

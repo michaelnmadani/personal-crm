@@ -11,6 +11,7 @@ import type {
   InteractionKind,
   Reminder,
   Tag,
+  WorkHistory,
 } from './types'
 
 /** Unwrap a supabase response, throwing on error. */
@@ -63,6 +64,20 @@ export const useFacts = (contactId: string) =>
     queryKey: ['facts', contactId],
     queryFn: () =>
       q<Fact[]>(supabase.from('facts').select('*').eq('contact_id', contactId).order('created_at')),
+  })
+
+export const useWorkHistory = (contactId: string) =>
+  useQuery({
+    queryKey: ['work', contactId],
+    queryFn: () =>
+      q<WorkHistory[]>(
+        supabase
+          .from('work_history')
+          .select('*')
+          .eq('contact_id', contactId)
+          .order('is_current', { ascending: false })
+          .order('start_year', { ascending: false, nullsFirst: false }),
+      ),
   })
 
 export const useTags = () =>
@@ -172,6 +187,9 @@ export const api = {
   addFact: (f: Omit<Fact, 'id'>) => q<Fact>(supabase.from('facts').insert(f).select().single()),
   deleteFact: (id: string) => q<null>(supabase.from('facts').delete().eq('id', id)),
 
+  addWork: (w: Omit<WorkHistory, 'id'>) => q<WorkHistory>(supabase.from('work_history').insert(w).select().single()),
+  deleteWork: (id: string) => q<null>(supabase.from('work_history').delete().eq('id', id)),
+
   async addTag({ contactId, name }: { contactId: string; name: string }) {
     const trimmed = name.trim()
     const existing = await q<Tag[]>(supabase.from('tags').select('*').ilike('name', trimmed))
@@ -205,6 +223,19 @@ export const api = {
   },
 
   deleteInteraction: (id: string) => q<null>(supabase.from('interactions').delete().eq('id', id)),
+
+  // Backfill/correct an existing timeline entry (notes, date, title, location, kind).
+  updateInteraction: ({
+    id,
+    ...fields
+  }: {
+    id: string
+    kind?: InteractionKind
+    happened_at?: string
+    title?: string | null
+    location?: string | null
+    notes?: string | null
+  }) => q<null>(supabase.from('interactions').update(fields).eq('id', id)),
 
   addReminder: (r: {
     title: string
@@ -248,6 +279,7 @@ export const api = {
       'contacts',
       'family_members',
       'facts',
+      'work_history',
       'interactions',
       'interaction_participants',
       'reminders',

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import type { Relation } from '../lib/types'
+import { format } from 'date-fns'
+import type { Interaction, Relation, WorkHistory } from '../lib/types'
 import {
   api,
   useContact,
@@ -10,6 +11,7 @@ import {
   useInteractions,
   useMut,
   useOpenReminders,
+  useWorkHistory,
 } from '../lib/hooks'
 import { ageOf, ago, daysUntil, fmtDate, fmtDateTime, fullName, kitDueInDays, nextOccurrence } from '../lib/utils'
 import { Avatar } from '../components/Avatar'
@@ -114,6 +116,158 @@ function FamilyEditor({ contactId }: { contactId: string }) {
   )
 }
 
+function WorkHistoryEditor({ contactId }: { contactId: string }) {
+  const { data: work } = useWorkHistory(contactId)
+  const add = useMut(api.addWork)
+  const remove = useMut(api.deleteWork)
+  const [adding, setAdding] = useState(false)
+  const [company, setCompany] = useState('')
+  const [title, setTitle] = useState('')
+  const [startYear, setStartYear] = useState('')
+  const [endYear, setEndYear] = useState('')
+  const [current, setCurrent] = useState(false)
+  const [notes, setNotes] = useState('')
+
+  const span = (w: WorkHistory) => {
+    if (!w.start_year && !w.end_year && !w.is_current) return null
+    return `${w.start_year ?? '?'}–${w.is_current ? 'now' : (w.end_year ?? '?')}`
+  }
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!company.trim()) return
+    await add.mutateAsync({
+      contact_id: contactId,
+      company: company.trim(),
+      title: title.trim() || null,
+      start_year: startYear ? Number(startYear) : null,
+      end_year: current || !endYear ? null : Number(endYear),
+      is_current: current,
+      notes: notes.trim() || null,
+    })
+    setCompany('')
+    setTitle('')
+    setStartYear('')
+    setEndYear('')
+    setCurrent(false)
+    setNotes('')
+    setAdding(false)
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work history</h3>
+        <button className="text-xs text-indigo-400 hover:text-indigo-300" onClick={() => setAdding(!adding)}>
+          {adding ? 'cancel' : '+ add'}
+        </button>
+      </div>
+      <ul className="space-y-1.5">
+        {(work ?? []).map((w) => (
+          <li key={w.id} className="flex items-start gap-2 text-sm group">
+            <span className="text-slate-200">
+              {w.title ? `${w.title} · ` : ''}
+              <span className="font-medium">{w.company}</span>
+              {span(w) && <span className="text-slate-500"> — {span(w)}</span>}
+              {w.is_current && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-emerald-400">current</span>}
+              {w.notes && <span className="block text-xs text-slate-500">{w.notes}</span>}
+            </span>
+            <button
+              className="ml-auto opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400"
+              onClick={() => remove.mutate(w.id)}
+              aria-label="Remove"
+            >
+              <Icon name="x" className="w-3.5 h-3.5" />
+            </button>
+          </li>
+        ))}
+        {(work ?? []).length === 0 && !adding && <li className="text-sm text-slate-600">None recorded.</li>}
+      </ul>
+      {adding && (
+        <form onSubmit={submit} className="mt-2 space-y-2 border-t border-slate-800 pt-2">
+          <div className="flex gap-2">
+            <input className={input} placeholder="Company *" value={company} onChange={(e) => setCompany(e.target.value)} required />
+            <input className={input} placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <div className="flex gap-2 items-center">
+            <input
+              type="number"
+              className={input}
+              placeholder="From year"
+              value={startYear}
+              onChange={(e) => setStartYear(e.target.value)}
+            />
+            <input
+              type="number"
+              className={input}
+              placeholder="To year"
+              value={endYear}
+              onChange={(e) => setEndYear(e.target.value)}
+              disabled={current}
+            />
+            <label className="flex items-center gap-1.5 text-xs text-slate-400 shrink-0">
+              <input type="checkbox" checked={current} onChange={(e) => setCurrent(e.target.checked)} />
+              current
+            </label>
+          </div>
+          <input className={input} placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <button type="submit" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
+            Save role
+          </button>
+        </form>
+      )}
+    </div>
+  )
+}
+
+/** Inline editor for a timeline entry — lets you backfill or correct comments, date, title, location. */
+function EditInteraction({ interaction, onClose }: { interaction: Interaction; onClose: () => void }) {
+  const update = useMut(api.updateInteraction)
+  const [title, setTitle] = useState(interaction.title ?? '')
+  const [when, setWhen] = useState(format(new Date(interaction.happened_at), "yyyy-MM-dd'T'HH:mm"))
+  const [location, setLocation] = useState(interaction.location ?? '')
+  const [notes, setNotes] = useState(interaction.notes ?? '')
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await update.mutateAsync({
+      id: interaction.id,
+      title: title.trim() || null,
+      happened_at: new Date(when).toISOString(),
+      location: location.trim() || null,
+      notes: notes.trim() || null,
+    })
+    onClose()
+  }
+
+  return (
+    <form onSubmit={submit} className="flex-1 space-y-2 border border-slate-700 rounded-lg p-3">
+      <div className="grid grid-cols-2 gap-2">
+        <input className={input} placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <input type="datetime-local" className={input} value={when} onChange={(e) => setWhen(e.target.value)} />
+      </div>
+      <input className={input} placeholder="Location" value={location} onChange={(e) => setLocation(e.target.value)} />
+      <textarea
+        className={input}
+        rows={4}
+        placeholder="Comments — what happened, what was said, what to remember…"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        autoFocus
+      />
+      {update.isError && <p className="text-sm text-red-400">{(update.error as Error).message}</p>}
+      <div className="flex justify-end gap-2">
+        <button type="button" className="text-xs text-slate-400 hover:text-slate-200" onClick={onClose}>
+          Cancel
+        </button>
+        <button type="submit" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium" disabled={update.isPending}>
+          {update.isPending ? 'Saving…' : 'Save changes'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
 function FactsEditor({ contactId }: { contactId: string }) {
   const { data: facts } = useFacts(contactId)
   const add = useMut(api.addFact)
@@ -215,6 +369,7 @@ export function ContactProfile() {
   const deleteInteraction = useMut(api.deleteInteraction)
   const [editing, setEditing] = useState(false)
   const [addingReminder, setAddingReminder] = useState(false)
+  const [editingInteractionId, setEditingInteractionId] = useState<string | null>(null)
 
   if (isLoading) return <p className="text-slate-500 text-sm">Loading…</p>
   if (!contact) return <p className="text-slate-500 text-sm">Contact not found.</p>
@@ -299,6 +454,7 @@ export function ContactProfile() {
       <div className="grid md:grid-cols-5 gap-4 items-start">
         {/* Personal panel */}
         <div className={`${card} p-4 space-y-5 md:col-span-2`}>
+          <WorkHistoryEditor contactId={contact.id} />
           <FamilyEditor contactId={contact.id} />
           <FactsEditor contactId={contact.id} />
           <div>
@@ -323,10 +479,20 @@ export function ContactProfile() {
         {/* Timeline */}
         <div className={`${card} p-4 md:col-span-3`}>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Timeline</h3>
-          <InteractionComposer contactId={contact.id} />
+          <InteractionComposer contactId={contact.id} contactName={contact.first_name} />
           <ul className="mt-4 space-y-4">
             {(interactions ?? []).map((i) => {
               const others = (i.participants ?? []).filter((p) => p.contact_id !== contact.id && p.contacts)
+              if (i.id === editingInteractionId) {
+                return (
+                  <li key={i.id} className="flex gap-3">
+                    <div className="w-8 h-8 rounded-full bg-slate-800 grid place-items-center shrink-0 text-slate-400">
+                      <Icon name={KIND_ICON[i.kind]} className="w-4 h-4" />
+                    </div>
+                    <EditInteraction interaction={i} onClose={() => setEditingInteractionId(null)} />
+                  </li>
+                )
+              }
               return (
                 <li key={i.id} className="flex gap-3 group">
                   <div className="w-8 h-8 rounded-full bg-slate-800 grid place-items-center shrink-0 text-slate-400">
@@ -340,7 +506,16 @@ export function ContactProfile() {
                         {i.location && ` · ${i.location}`}
                       </span>
                     </p>
-                    {i.notes && <p className="text-sm text-slate-300 whitespace-pre-wrap mt-0.5">{i.notes}</p>}
+                    {i.notes ? (
+                      <p className="text-sm text-slate-300 whitespace-pre-wrap mt-0.5">{i.notes}</p>
+                    ) : (
+                      <button
+                        className="text-xs text-slate-500 hover:text-indigo-300 mt-0.5"
+                        onClick={() => setEditingInteractionId(i.id)}
+                      >
+                        + add comments
+                      </button>
+                    )}
                     {others.length > 0 && (
                       <p className="text-xs text-slate-500 mt-1">
                         with{' '}
@@ -353,13 +528,23 @@ export function ContactProfile() {
                       </p>
                     )}
                   </div>
-                  <button
-                    className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 self-start"
-                    onClick={() => deleteInteraction.mutate(i.id)}
-                    aria-label="Delete entry"
-                  >
-                    <Icon name="trash" className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex gap-1 self-start opacity-0 group-hover:opacity-100">
+                    <button
+                      className="text-slate-600 hover:text-indigo-300"
+                      onClick={() => setEditingInteractionId(i.id)}
+                      aria-label="Edit entry"
+                      title="Edit / backfill comments"
+                    >
+                      <Icon name="edit" className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      className="text-slate-600 hover:text-red-400"
+                      onClick={() => deleteInteraction.mutate(i.id)}
+                      aria-label="Delete entry"
+                    >
+                      <Icon name="trash" className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </li>
               )
             })}

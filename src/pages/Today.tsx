@@ -62,6 +62,16 @@ export function Today() {
     .filter((x): x is { c: ContactOverview; days: number } => x.days !== null && x.days <= 0)
     .sort((a, b) => a.days - b.days)
 
+  // Dormant ties: contacts with no cadence, quiet for 6+ months. Research (Levin,
+  // Walter & Murnighan) finds these give the most novel, valuable help when revived.
+  const SIX_MONTHS = 180 * 86_400_000
+  const dormant = (contacts ?? [])
+    .filter((c) => !c.keep_in_touch_days)
+    .map((c) => ({ c, last: new Date(c.last_contacted ?? c.created_at).getTime() }))
+    .filter((x) => Date.now() - x.last > SIX_MONTHS)
+    .sort((a, b) => a.last - b.last)
+    .slice(0, 5)
+
   return (
     <div className="space-y-4">
       <header>
@@ -123,6 +133,27 @@ export function Today() {
           </ul>
         )}
       </Section>
+
+      {dormant.length > 0 && (
+        <Section title="Worth reconnecting" icon="users">
+          <p className="text-xs text-slate-500 mb-2">
+            Dormant ties — research shows people you've lost touch with give the most valuable, novel help when you reconnect.
+          </p>
+          <ul className="space-y-2">
+            {dormant.map(({ c, last }) => (
+              <li key={c.id}>
+                <Link to={`/contacts/${c.id}`} className="flex items-center gap-3 group">
+                  <Avatar contact={c} size="sm" />
+                  <span className="text-sm font-medium text-slate-100 group-hover:text-indigo-300">{fullName(c)}</span>
+                  <span className="text-xs text-slate-500 ml-auto">
+                    quiet for {Math.floor((Date.now() - last) / (30 * 86_400_000))} months
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
 
       <Section title="Recent notes" icon="note">
         {(recent ?? []).length === 0 ? (
