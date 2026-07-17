@@ -2,6 +2,7 @@
 // raw RGBA pixels hand-encoded into PNG via zlib.
 import { deflateSync } from 'node:zlib'
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   let c = n
@@ -101,14 +102,13 @@ function render(size) {
   return buf
 }
 
-mkdirSync('build', { recursive: true })
-
 for (const [file, size] of [
   ['public/icon-192.png', 192],
   ['public/icon-512.png', 512],
   ['public/apple-touch-icon.png', 180],
   ['build/icon.png', 1024], // electron-builder derives the .icns / .ico from this
 ]) {
+  mkdirSync(dirname(file), { recursive: true }) // dirs aren't tracked by git when empty
   writeFileSync(file, png(size, render(size)))
   console.log(`wrote ${file}`)
 }
