@@ -10,7 +10,7 @@ let autoUpdater = null
 // the latest deployed version — no reinstall needed. If the URL can't be reached
 // (offline), it falls back to the copy bundled inside the app. Leave '' to always
 // use the bundled copy.
-const REMOTE_URL = ''
+const REMOTE_URL = 'https://personal-crm-seven-fawn.vercel.app'
 
 function createWindow() {
   const win = new BrowserWindow({
