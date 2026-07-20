@@ -1,12 +1,13 @@
 name: Release desktop app
 
-# Push a version tag (e.g. v0.1.0) to build the Mac .dmg and Windows .exe on
-# real macOS/Windows runners and publish them to a GitHub Release. The installed
-# app then auto-updates itself from that release feed.
+# Push a version tag (e.g. v0.1.0) — or run this workflow manually from the
+# Actions tab — to build the Mac .dmg and Windows .exe on real macOS/Windows
+# runners and publish them to a GitHub Release (draft; publish it to go live).
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
