@@ -1,14 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { addDays } from 'date-fns'
 import { supabase } from './supabase'
+import { resizeImage } from './image'
 import type {
   Contact,
   ContactOverview,
   ContactTag,
   Fact,
   FamilyMember,
+  Group,
+  GroupMember,
+  GroupType,
   Interaction,
   InteractionKind,
+  Relationship,
   Reminder,
   Tag,
   WorkHistory,
@@ -153,6 +158,73 @@ export const useDoneReminders = () =>
       ),
   })
 
+// ------------------------------------------------------- groups & relations
+
+export const useGroups = () =>
+  useQuery({
+    queryKey: ['groups'],
+    queryFn: () =>
+      q<(Group & { group_members: { count: number }[] })[]>(
+        supabase.from('groups').select('*, group_members(count)').order('name'),
+      ),
+  })
+
+export const useGroup = (id: string) =>
+  useQuery({
+    queryKey: ['group', id],
+    queryFn: () => q<Group>(supabase.from('groups').select('*').eq('id', id).single()),
+  })
+
+export const useGroupMembers = (groupId: string) =>
+  useQuery({
+    queryKey: ['groupMembers', groupId],
+    queryFn: () =>
+      q<GroupMember[]>(
+        supabase
+          .from('group_members')
+          .select('group_id, contact_id, role, contacts(id, first_name, last_name, photo_url)')
+          .eq('group_id', groupId),
+      ),
+  })
+
+export const useContactGroups = (contactId: string) =>
+  useQuery({
+    queryKey: ['contactGroups', contactId],
+    queryFn: () =>
+      q<GroupMember[]>(
+        supabase.from('group_members').select('group_id, contact_id, role, groups(*)').eq('contact_id', contactId),
+      ),
+  })
+
+export const useAllGroupMembers = () =>
+  useQuery({
+    queryKey: ['groupMembers', 'all'],
+    queryFn: () => q<GroupMember[]>(supabase.from('group_members').select('group_id, contact_id, role')),
+  })
+
+export const useRelationships = () =>
+  useQuery({
+    queryKey: ['relationships'],
+    queryFn: () => q<Relationship[]>(supabase.from('relationships').select('*')),
+  })
+
+/** Signed URLs for contact photos (private bucket). Keyed by storage path. */
+export const usePhotoUrls = (paths: (string | null | undefined)[]) => {
+  const valid = [...new Set(paths.filter((p): p is string => !!p))].sort()
+  return useQuery({
+    queryKey: ['photoUrls', valid],
+    enabled: valid.length > 0,
+    staleTime: 45 * 60_000, // URLs are valid for 60 min
+    queryFn: async () => {
+      const { data, error } = await supabase.storage.from('contact-photos').createSignedUrls(valid, 3600)
+      if (error) throw new Error(error.message)
+      const map: Record<string, string> = {}
+      for (const d of data) if (d.signedUrl && d.path) map[d.path] = d.signedUrl
+      return map
+    },
+  })
+}
+
 // ---------------------------------------------------------------- mutations
 
 /** All mutations invalidate everything — the dataset is small and it keeps every view fresh. */
@@ -189,6 +261,52 @@ export const api = {
 
   addWork: (w: Omit<WorkHistory, 'id'>) => q<WorkHistory>(supabase.from('work_history').insert(w).select().single()),
   deleteWork: (id: string) => q<null>(supabase.from('work_history').delete().eq('id', id)),
+
+  createGroup: (g: { name: string; type: GroupType }) =>
+    q<Group>(supabase.from('groups').insert(g).select().single()),
+  deleteGroup: (id: string) => q<null>(supabase.from('groups').delete().eq('id', id)),
+
+  /** Add a contact to a group by group name — creates the group if it doesn't exist. */
+  async addToGroup({
+    contactId,
+    groupName,
+    type,
+    role,
+  }: {
+    contactId: string
+    groupName: string
+    type: GroupType
+    role: string | null
+  }) {
+    const name = groupName.trim()
+    const existing = await q<Group[]>(supabase.from('groups').select('*').ilike('name', name))
+    const group = existing[0] ?? (await q<Group>(supabase.from('groups').insert({ name, type }).select().single()))
+    return q(supabase.from('group_members').insert({ group_id: group.id, contact_id: contactId, role }))
+  },
+
+  addGroupMember: (m: { group_id: string; contact_id: string; role: string | null }) =>
+    q<null>(supabase.from('group_members').insert(m)),
+  removeGroupMember: ({ groupId, contactId }: { groupId: string; contactId: string }) =>
+    q<null>(supabase.from('group_members').delete().eq('group_id', groupId).eq('contact_id', contactId)),
+
+  addRelationship: (r: { from_contact: string; to_contact: string; relation: string; strength: number }) =>
+    q<Relationship>(supabase.from('relationships').insert(r).select().single()),
+  deleteRelationship: (id: string) => q<null>(supabase.from('relationships').delete().eq('id', id)),
+
+  async uploadPhoto({ contact, file }: { contact: Contact; file: File }) {
+    const blob = await resizeImage(file, 512)
+    const path = `${contact.user_id}/${contact.id}.jpg`
+    const { error } = await supabase.storage
+      .from('contact-photos')
+      .upload(path, blob, { upsert: true, contentType: 'image/jpeg' })
+    if (error) throw new Error(error.message)
+    return q(supabase.from('contacts').update({ photo_url: path }).eq('id', contact.id))
+  },
+
+  async removePhoto(contact: Contact) {
+    if (contact.photo_url) await supabase.storage.from('contact-photos').remove([contact.photo_url])
+    return q(supabase.from('contacts').update({ photo_url: null }).eq('id', contact.id))
+  },
 
   async addTag({ contactId, name }: { contactId: string; name: string }) {
     const trimmed = name.trim()
@@ -284,6 +402,8 @@ export const api = {
       'interaction_participants',
       'reminders',
       'relationships',
+      'groups',
+      'group_members',
       'tags',
       'contact_tags',
     ] as const

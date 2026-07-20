@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { api, useAllContactTags, useContacts, useMut } from '../lib/hooks'
+import { api, useAllContactTags, useContacts, useMut, usePhotoUrls } from '../lib/hooks'
 import { ago, fullName, kitOverdue } from '../lib/utils'
 import { Avatar } from '../components/Avatar'
 import { Icon } from '../components/Icon'
@@ -12,6 +12,7 @@ type Sort = 'name' | 'recent' | 'added'
 export function Contacts() {
   const { data: contacts, isLoading } = useContacts()
   const { data: allTags } = useAllContactTags()
+  const { data: photos } = usePhotoUrls((contacts ?? []).map((c) => c.photo_url))
   const quickAdd = useMut(api.quickAddContact)
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -118,7 +119,7 @@ export function Contacts() {
           {list.map((c) => (
             <li key={c.id}>
               <Link to={`/contacts/${c.id}`} className="flex items-center gap-3 p-3 hover:bg-slate-800/50">
-                <Avatar contact={c} />
+                <Avatar contact={c} src={c.photo_url ? photos?.[c.photo_url] : undefined} />
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-slate-100 flex items-center gap-2">
                     {fullName(c)}

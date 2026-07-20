@@ -9,6 +9,7 @@ import { Icon } from './Icon'
 const TABS = [
   { to: '/', label: 'Today', icon: 'home' },
   { to: '/contacts', label: 'Contacts', icon: 'users' },
+  { to: '/network', label: 'Network', icon: 'share' },
   { to: '/reminders', label: 'Reminders', icon: 'bell' },
   { to: '/settings', label: 'Settings', icon: 'sliders' },
 ]

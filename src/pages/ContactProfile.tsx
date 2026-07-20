@@ -1,16 +1,21 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { format } from 'date-fns'
-import type { Interaction, Relation, WorkHistory } from '../lib/types'
+import type { ContactOverview, GroupType, Interaction, Relation, WorkHistory } from '../lib/types'
 import {
   api,
   useContact,
+  useContactGroups,
+  useContacts,
   useContactTags,
   useFacts,
   useFamily,
+  useGroups,
   useInteractions,
   useMut,
   useOpenReminders,
+  usePhotoUrls,
+  useRelationships,
   useWorkHistory,
 } from '../lib/hooks'
 import { ageOf, ago, daysUntil, fmtDate, fmtDateTime, fullName, kitDueInDays, nextOccurrence } from '../lib/utils'
@@ -23,6 +28,230 @@ import { ReminderItem } from '../components/ReminderItem'
 import { btnDanger, btnGhost, card, chip, input } from '../components/ui'
 
 const RELATIONS: Relation[] = ['spouse', 'partner', 'child', 'parent', 'sibling', 'pet', 'other']
+const GROUP_TYPES: GroupType[] = ['company', 'church', 'sports', 'school', 'club', 'nonprofit', 'family', 'other']
+const EDGE_TYPES = ['knows', 'friend', 'family', 'colleague', 'introduced me', 'client', 'mentor']
+
+/** Avatar with photo upload: click to choose an image, small × to remove. */
+function PhotoAvatar({ contact }: { contact: ContactOverview }) {
+  const upload = useMut(api.uploadPhoto)
+  const removePhoto = useMut(api.removePhoto)
+  const { data: photos } = usePhotoUrls([contact.photo_url])
+  const src = contact.photo_url ? photos?.[contact.photo_url] : undefined
+
+  return (
+    <div className="relative shrink-0 group/avatar">
+      <label className="cursor-pointer block" title="Set photo">
+        <Avatar contact={contact} size="lg" src={src} />
+        <span className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover/avatar:opacity-100 grid place-items-center text-white transition-opacity">
+          <Icon name="camera" className="w-5 h-5" />
+        </span>
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) upload.mutate({ contact, file })
+            e.target.value = ''
+          }}
+        />
+      </label>
+      {contact.photo_url && (
+        <button
+          className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-slate-800 border border-slate-600 grid place-items-center text-slate-400 hover:text-red-400 opacity-0 group-hover/avatar:opacity-100"
+          onClick={() => removePhoto.mutate(contact)}
+          aria-label="Remove photo"
+        >
+          <Icon name="x" className="w-3 h-3" />
+        </button>
+      )}
+      {upload.isPending && <p className="absolute -bottom-5 left-0 right-0 text-center text-[10px] text-slate-500">uploading…</p>}
+    </div>
+  )
+}
+
+/** Group memberships: chips linking to group pages, plus add-to-group (creates groups on the fly). */
+function GroupsSection({ contactId }: { contactId: string }) {
+  const { data: memberships } = useContactGroups(contactId)
+  const { data: allGroups } = useGroups()
+  const addTo = useMut(api.addToGroup)
+  const removeFrom = useMut(api.removeGroupMember)
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const [type, setType] = useState<GroupType>('company')
+  const [role, setRole] = useState('')
+
+  const isNewGroup = !(allGroups ?? []).some((g) => g.name.toLowerCase() === name.trim().toLowerCase())
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) return
+    await addTo.mutateAsync({ contactId, groupName: name, type, role: role.trim() || null })
+    setName('')
+    setRole('')
+    setAdding(false)
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Groups</h3>
+        <button className="text-xs text-indigo-400 hover:text-indigo-300" onClick={() => setAdding(!adding)}>
+          {adding ? 'cancel' : '+ add'}
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {(memberships ?? []).map(
+          (m) =>
+            m.groups && (
+              <span key={m.group_id} className={`${chip} bg-slate-800 text-slate-200 group`}>
+                <Link to={`/groups/${m.group_id}`} className="hover:text-indigo-300">
+                  {m.groups.name}
+                  {m.role && <span className="text-slate-500"> · {m.role}</span>}
+                </Link>
+                <button
+                  onClick={() => removeFrom.mutate({ groupId: m.group_id, contactId })}
+                  className="opacity-50 hover:opacity-100"
+                  aria-label="Remove from group"
+                >
+                  <Icon name="x" className="w-2.5 h-2.5" />
+                </button>
+              </span>
+            ),
+        )}
+        {(memberships ?? []).length === 0 && !adding && <span className="text-sm text-slate-600">None yet.</span>}
+      </div>
+      {adding && (
+        <form onSubmit={submit} className="mt-2 space-y-2 border-t border-slate-800 pt-2">
+          <input
+            className={input}
+            placeholder="Group name — existing or new"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            list="group-names"
+            required
+          />
+          <datalist id="group-names">
+            {(allGroups ?? []).map((g) => (
+              <option key={g.id} value={g.name} />
+            ))}
+          </datalist>
+          <div className="flex gap-2">
+            {isNewGroup && (
+              <select className={input} value={type} onChange={(e) => setType(e.target.value as GroupType)}>
+                {GROUP_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            )}
+            <input className={input} placeholder="Role (optional)" value={role} onChange={(e) => setRole(e.target.value)} />
+          </div>
+          <button type="submit" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
+            {isNewGroup && name.trim() ? `Create “${name.trim()}” and add` : 'Add to group'}
+          </button>
+        </form>
+      )}
+    </div>
+  )
+}
+
+/** Person-to-person connections (graph edges) involving this contact. */
+function ConnectionsSection({ contactId }: { contactId: string }) {
+  const { data: rels } = useRelationships()
+  const { data: contacts } = useContacts()
+  const add = useMut(api.addRelationship)
+  const remove = useMut(api.deleteRelationship)
+  const [adding, setAdding] = useState(false)
+  const [other, setOther] = useState('')
+  const [relation, setRelation] = useState('knows')
+  const [strength, setStrength] = useState('3')
+
+  const byId = new Map((contacts ?? []).map((c) => [c.id, c]))
+  const mine = (rels ?? []).filter((r) => r.from_contact === contactId || r.to_contact === contactId)
+  const options = (contacts ?? []).filter((c) => c.id !== contactId)
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!other) return
+    await add.mutateAsync({ from_contact: contactId, to_contact: other, relation, strength: Number(strength) })
+    setOther('')
+    setAdding(false)
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Connections</h3>
+        <div className="flex gap-2">
+          <Link to={`/network?focus=${contactId}`} className="text-xs text-indigo-400 hover:text-indigo-300">
+            open in network
+          </Link>
+          <button className="text-xs text-indigo-400 hover:text-indigo-300" onClick={() => setAdding(!adding)}>
+            {adding ? 'cancel' : '+ add'}
+          </button>
+        </div>
+      </div>
+      <ul className="space-y-1.5">
+        {mine.map((r) => {
+          const otherId = r.from_contact === contactId ? r.to_contact : r.from_contact
+          const person = byId.get(otherId)
+          if (!person) return null
+          return (
+            <li key={r.id} className="flex items-center gap-2 text-sm group">
+              <Link to={`/contacts/${person.id}`} className="text-slate-200 hover:text-indigo-300">
+                {fullName(person)}
+              </Link>
+              <span className="text-xs text-slate-500">
+                {r.relation} · {'●'.repeat(r.strength)}
+              </span>
+              <button
+                className="ml-auto opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400"
+                onClick={() => remove.mutate(r.id)}
+                aria-label="Remove connection"
+              >
+                <Icon name="x" className="w-3.5 h-3.5" />
+              </button>
+            </li>
+          )
+        })}
+        {mine.length === 0 && !adding && <li className="text-sm text-slate-600">None yet.</li>}
+      </ul>
+      {adding && (
+        <form onSubmit={submit} className="mt-2 space-y-2 border-t border-slate-800 pt-2">
+          <select className={input} value={other} onChange={(e) => setOther(e.target.value)} required>
+            <option value="">— pick a person —</option>
+            {options.map((c) => (
+              <option key={c.id} value={c.id}>
+                {fullName(c)}
+              </option>
+            ))}
+          </select>
+          <div className="flex gap-2">
+            <select className={input} value={relation} onChange={(e) => setRelation(e.target.value)}>
+              {EDGE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <select className={input} value={strength} onChange={(e) => setStrength(e.target.value)}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>
+                  strength {n}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="submit" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
+            Save connection
+          </button>
+        </form>
+      )}
+    </div>
+  )
+}
 
 function FamilyEditor({ contactId }: { contactId: string }) {
   const { data: family } = useFamily(contactId)
@@ -392,7 +621,7 @@ export function ContactProfile() {
       {/* Header */}
       <header className={`${card} p-5`}>
         <div className="flex items-start gap-4">
-          <Avatar contact={contact} size="lg" />
+          <PhotoAvatar contact={contact} />
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-bold flex items-center gap-2 flex-wrap">
               {fullName(contact)}
@@ -417,8 +646,28 @@ export function ContactProfile() {
           </div>
         </div>
 
-        {(contact.emails.length > 0 || contact.phones.length > 0) && (
+        {(contact.emails.length > 0 || contact.phones.length > 0 || contact.website || contact.linkedin_url) && (
           <div className="flex flex-wrap gap-x-5 gap-y-1 mt-4 text-sm">
+            {contact.linkedin_url && (
+              <a
+                href={contact.linkedin_url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 text-indigo-400 hover:underline"
+              >
+                <Icon name="linkedin" className="w-3.5 h-3.5" /> LinkedIn
+              </a>
+            )}
+            {contact.website && (
+              <a
+                href={contact.website.startsWith('http') ? contact.website : `https://${contact.website}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 text-indigo-400 hover:underline"
+              >
+                <Icon name="link" className="w-3.5 h-3.5" /> Website
+              </a>
+            )}
             {contact.emails.map((e, i) => (
               <a key={`e${i}`} href={`mailto:${e.value}`} className="flex items-center gap-1.5 text-indigo-400 hover:underline">
                 <Icon name="mail" className="w-3.5 h-3.5" /> {e.value}
@@ -454,6 +703,8 @@ export function ContactProfile() {
       <div className="grid md:grid-cols-5 gap-4 items-start">
         {/* Personal panel */}
         <div className={`${card} p-4 space-y-5 md:col-span-2`}>
+          <GroupsSection contactId={contact.id} />
+          <ConnectionsSection contactId={contact.id} />
           <WorkHistoryEditor contactId={contact.id} />
           <FamilyEditor contactId={contact.id} />
           <FactsEditor contactId={contact.id} />

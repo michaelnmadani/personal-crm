@@ -14,6 +14,9 @@ export type Contact = {
   emails: LabeledValue[]
   phones: LabeledValue[]
   location: string | null
+  website: string | null
+  linkedin_url: string | null
+  photo_url: string | null
   birthday: string | null
   how_we_met: string | null
   met_on: string | null
@@ -92,3 +95,29 @@ export type Reminder = {
 export type Tag = { id: string; name: string; color: string }
 
 export type ContactTag = { contact_id: string; tag_id: string; tags: Tag | null }
+
+export type GroupType = 'company' | 'church' | 'sports' | 'school' | 'club' | 'nonprofit' | 'family' | 'other'
+
+export type Group = {
+  id: string
+  name: string
+  type: GroupType
+  notes: string | null
+}
+
+export type GroupMember = {
+  group_id: string
+  contact_id: string
+  role: string | null
+  groups?: Group | null
+  contacts?: { id: string; first_name: string; last_name: string | null; photo_url: string | null } | null
+}
+
+export type Relationship = {
+  id: string
+  from_contact: string
+  to_contact: string
+  relation: string
+  strength: number
+  notes: string | null
+}

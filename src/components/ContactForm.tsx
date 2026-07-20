@@ -69,6 +69,8 @@ export function ContactForm({ contact, onClose }: { contact?: Contact; onClose: 
     company: contact?.company ?? '',
     title: contact?.title ?? '',
     location: contact?.location ?? '',
+    website: contact?.website ?? '',
+    linkedin_url: contact?.linkedin_url ?? '',
     birthday: contact?.birthday ?? '',
     met_on: contact?.met_on ?? '',
     how_we_met: contact?.how_we_met ?? '',
@@ -94,6 +96,8 @@ export function ContactForm({ contact, onClose }: { contact?: Contact; onClose: 
       company: f.company.trim() || null,
       title: f.title.trim() || null,
       location: f.location.trim() || null,
+      website: f.website.trim() || null,
+      linkedin_url: f.linkedin_url.trim() || null,
       birthday: f.birthday || null,
       met_on: f.met_on || null,
       how_we_met: f.how_we_met.trim() || null,
@@ -144,6 +148,17 @@ export function ContactForm({ contact, onClose }: { contact?: Contact; onClose: 
           <div>
             <span className={label}>Birthday</span>
             <input type="date" className={input} value={f.birthday} onChange={set('birthday')} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <span className={label}>Website</span>
+            <input className={input} value={f.website} onChange={set('website')} placeholder="https://…" />
+          </div>
+          <div>
+            <span className={label}>LinkedIn</span>
+            <input className={input} value={f.linkedin_url} onChange={set('linkedin_url')} placeholder="https://linkedin.com/in/…" />
           </div>
         </div>
 
