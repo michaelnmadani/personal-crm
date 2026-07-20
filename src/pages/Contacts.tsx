@@ -8,6 +8,7 @@ import { btnPrimary, card, chip, input } from '../components/ui'
 
 type Filter = 'all' | 'business' | 'personal' | 'overdue'
 type Sort = 'name' | 'recent' | 'added'
+type View = 'rows' | 'tiles'
 
 export function Contacts() {
   const { data: contacts, isLoading } = useContacts()
@@ -19,6 +20,12 @@ export function Contacts() {
   const [filter, setFilter] = useState<Filter>('all')
   const [sort, setSort] = useState<Sort>('name')
   const [newName, setNewName] = useState('')
+  const [view, setView] = useState<View>(() => (localStorage.getItem('contactsView') === 'tiles' ? 'tiles' : 'rows'))
+
+  const switchView = (v: View) => {
+    setView(v)
+    localStorage.setItem('contactsView', v)
+  }
 
   const tagsByContact = useMemo(() => {
     const m = new Map<string, { id: string; name: string; color: string }[]>()
@@ -94,6 +101,24 @@ export function Contacts() {
           <option value="recent">Recently contacted</option>
           <option value="added">Recently added</option>
         </select>
+        <div className="flex rounded-lg border border-slate-700 overflow-hidden">
+          <button
+            onClick={() => switchView('rows')}
+            className={`p-2 ${view === 'rows' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+            aria-label="Row view"
+            title="Rows"
+          >
+            <Icon name="rows" className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => switchView('tiles')}
+            className={`p-2 ${view === 'tiles' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+            aria-label="Tile view"
+            title="Tiles"
+          >
+            <Icon name="grid" className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-1.5">
@@ -114,6 +139,38 @@ export function Contacts() {
         <div className={`${card} p-8 text-center text-slate-500 text-sm`}>
           {contacts?.length === 0 ? 'No contacts yet — add your first person above.' : 'No matches.'}
         </div>
+      ) : view === 'tiles' ? (
+        <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {list.map((c) => (
+            <li key={c.id}>
+              <Link
+                to={`/contacts/${c.id}`}
+                className={`${card} flex flex-col items-center text-center p-4 gap-2 hover:border-slate-600 h-full`}
+              >
+                <Avatar contact={c} size="lg" src={c.photo_url ? photos?.[c.photo_url] : undefined} />
+                <p className="font-medium text-slate-100 leading-tight">
+                  {fullName(c)}
+                  {kitOverdue(c) && <span className={`${chip} bg-red-500/15 text-red-400 ml-1.5 align-middle`}>ping</span>}
+                </p>
+                <p className="text-xs text-slate-500 line-clamp-2">
+                  {[c.title, c.company].filter(Boolean).join(' @ ') || c.location || c.summary || '—'}
+                </p>
+                {(tagsByContact.get(c.id) ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-1 justify-center">
+                    {(tagsByContact.get(c.id) ?? []).slice(0, 3).map((t) => (
+                      <span key={t.id} className={chip} style={{ background: `${t.color}26`, color: t.color }}>
+                        {t.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[11px] text-slate-600 mt-auto">
+                  {c.last_contacted ? ago(c.last_contacted) : 'no contact logged'}
+                </p>
+              </Link>
+            </li>
+          ))}
+        </ul>
       ) : (
         <ul className={`${card} divide-y divide-slate-800`}>
           {list.map((c) => (

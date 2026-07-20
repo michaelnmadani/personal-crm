@@ -35,6 +35,8 @@ const PATHS: Record<string, string[]> = {
     'M12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
   ],
   link: ['M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71', 'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'],
+  grid: ['M3 3h7v7H3z', 'M14 3h7v7h-7z', 'M3 14h7v7H3z', 'M14 14h7v7h-7z'],
+  rows: ['M8 6h13', 'M8 12h13', 'M8 18h13', 'M3 6h.01', 'M3 12h.01', 'M3 18h.01'],
 }
 
 // Filled brand glyphs (rendered with fill, not stroke).
