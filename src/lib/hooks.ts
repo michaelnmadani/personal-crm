@@ -85,6 +85,12 @@ export const useWorkHistory = (contactId: string) =>
       ),
   })
 
+export const useAllWorkHistory = () =>
+  useQuery({
+    queryKey: ['work', 'all'],
+    queryFn: () => q<WorkHistory[]>(supabase.from('work_history').select('*')),
+  })
+
 export const useTags = () =>
   useQuery({
     queryKey: ['tags'],

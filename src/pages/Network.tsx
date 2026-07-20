@@ -2,7 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import cytoscape from 'cytoscape'
 import type { GroupType } from '../lib/types'
-import { useAllGroupMembers, useContacts, useGroups, usePhotoUrls, useRelationships } from '../lib/hooks'
+import {
+  useAllGroupMembers,
+  useAllWorkHistory,
+  useContacts,
+  useGroups,
+  usePhotoUrls,
+  useRelationships,
+} from '../lib/hooks'
 import { fullName } from '../lib/utils'
 import { Icon } from '../components/Icon'
 import { Avatar } from '../components/Avatar'
@@ -21,11 +28,69 @@ const GROUP_COLORS: Record<GroupType, string> = {
 
 type Selected = { kind: 'contact'; id: string } | { kind: 'group'; id: string } | null
 
+/** Normalize a company name so "Acme Corp." and "acme corp" match. */
+const normCompany = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[.,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\s+(inc|llc|ltd|corp|co|gmbh|plc)$/, '')
+
+type Span = { contactId: string; start: number; end: number }
+
+/**
+ * Infer "worked together" pairs: same (normalized) company with overlapping
+ * years, from work history plus each contact's current company. Missing years
+ * are treated as open-ended, so entries without dates still match on company.
+ */
+function inferColleagues(
+  contacts: { id: string; company: string | null }[],
+  work: { contact_id: string; company: string; start_year: number | null; end_year: number | null; is_current: boolean }[],
+): Map<string, string> {
+  const nowYear = new Date().getFullYear()
+  const byCompany = new Map<string, Span[]>()
+  const add = (company: string, span: Span) => {
+    const key = normCompany(company)
+    if (!key) return
+    const list = byCompany.get(key) ?? []
+    list.push(span)
+    byCompany.set(key, list)
+  }
+  for (const w of work) {
+    add(w.company, {
+      contactId: w.contact_id,
+      start: w.start_year ?? -Infinity,
+      end: w.is_current ? nowYear : (w.end_year ?? Infinity),
+    })
+  }
+  for (const c of contacts) {
+    if (c.company) add(c.company, { contactId: c.id, start: -Infinity, end: nowYear })
+  }
+
+  const pairs = new Map<string, string>() // "idA|idB" (sorted) -> company key
+  for (const [company, spans] of byCompany) {
+    for (let i = 0; i < spans.length; i++) {
+      for (let j = i + 1; j < spans.length; j++) {
+        const a = spans[i]
+        const b = spans[j]
+        if (a.contactId === b.contactId) continue
+        if (a.start <= b.end && b.start <= a.end) {
+          const key = a.contactId < b.contactId ? `${a.contactId}|${b.contactId}` : `${b.contactId}|${a.contactId}`
+          if (!pairs.has(key)) pairs.set(key, company)
+        }
+      }
+    }
+  }
+  return pairs
+}
+
 export function Network() {
   const { data: contacts } = useContacts()
   const { data: rels } = useRelationships()
   const { data: groups } = useGroups()
   const { data: memberships } = useAllGroupMembers()
+  const { data: allWork } = useAllWorkHistory()
   const { data: photos } = usePhotoUrls((contacts ?? []).map((c) => c.photo_url))
   const [params] = useSearchParams()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -79,8 +144,24 @@ export function Network() {
         })
       }
     }
+
+    // Inferred colleagues: same company, overlapping years. Skip pairs that
+    // already have an explicit relationship — the drawn edge wins.
+    const explicit = new Set(
+      (rels ?? []).map((r) =>
+        r.from_contact < r.to_contact ? `${r.from_contact}|${r.to_contact}` : `${r.to_contact}|${r.from_contact}`,
+      ),
+    )
+    const colleaguePairs = inferColleagues(visible, allWork ?? [])
+    for (const [pair, company] of colleaguePairs) {
+      if (explicit.has(pair)) continue
+      const [a, b] = pair.split('|')
+      if (visibleIds.has(a) && visibleIds.has(b)) {
+        els.push({ data: { id: `w-${pair}`, source: a, target: b, colleague: 1, company } })
+      }
+    }
     return els
-  }, [contacts, rels, groups, memberships, photos, kindFilter, groupFilter])
+  }, [contacts, rels, groups, memberships, allWork, photos, kindFilter, groupFilter])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -143,6 +224,10 @@ export function Network() {
         {
           selector: 'edge[membership]',
           style: { width: 1, 'line-style': 'dashed', 'line-color': '#334155', opacity: 0.6 },
+        },
+        {
+          selector: 'edge[colleague]',
+          style: { width: 1.5, 'line-style': 'dotted', 'line-color': '#0ea5e9', opacity: 0.7 },
         },
         { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#f8fafc' } },
       ],
@@ -285,7 +370,9 @@ export function Network() {
 
       <p className="text-xs text-slate-600">
         Drag to pan · pinch/scroll to zoom · tap a person or group to inspect. Solid lines are direct connections
-        (thicker = stronger); dashed lines are group memberships. Add connections from a contact's profile.
+        (thicker = stronger); dashed gray lines are group memberships; dotted blue lines are inferred colleagues —
+        people whose work histories overlap at the same company in the same years. Add connections and work history
+        from a contact's profile.
       </p>
     </div>
   )
