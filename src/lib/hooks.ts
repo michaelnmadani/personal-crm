@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { addDays } from 'date-fns'
 import { supabase } from './supabase'
 import { resizeImage } from './image'
+import type { ImportRow } from './importCsv'
 import type {
   Contact,
   ContactOverview,
@@ -312,6 +313,62 @@ export const api = {
   async removePhoto(contact: Contact) {
     if (contact.photo_url) await supabase.storage.from('contact-photos').remove([contact.photo_url])
     return q(supabase.from('contacts').update({ photo_url: null }).eq('id', contact.id))
+  },
+
+  mergeContacts: ({ winner, loser }: { winner: string; loser: string }) =>
+    q<null>(supabase.rpc('merge_contacts', { winner, loser })),
+
+  /**
+   * Bulk-import parsed CSV rows. Dedupes against existing contacts by LinkedIn
+   * URL and by name+company, tags everything with `tagName`, and reports counts.
+   * onProgress fires after each chunk so the UI can show a live count.
+   */
+  async importContacts({
+    rows,
+    tagName = 'LinkedIn',
+    onProgress,
+  }: {
+    rows: ImportRow[]
+    tagName?: string
+    onProgress?: (done: number, total: number) => void
+  }) {
+    const existing = await q<{ linkedin_url: string | null; first_name: string; last_name: string | null; company: string | null }[]>(
+      supabase.from('contacts').select('linkedin_url, first_name, last_name, company'),
+    )
+    const urlSet = new Set(existing.filter((c) => c.linkedin_url).map((c) => c.linkedin_url!.toLowerCase()))
+    const nameKey = (c: { first_name: string; last_name: string | null; company: string | null }) =>
+      `${c.first_name}|${c.last_name ?? ''}|${c.company ?? ''}`.toLowerCase()
+    const nameSet = new Set(existing.map(nameKey))
+
+    const seen = new Set<string>()
+    const fresh = rows.filter((r) => {
+      const url = r.linkedin_url?.toLowerCase()
+      if (url && urlSet.has(url)) return false
+      const nk = nameKey(r)
+      if (nameSet.has(nk) || seen.has(url ?? nk)) return false
+      seen.add(url ?? nk)
+      return true
+    })
+
+    let inserted = 0
+    const CHUNK = 200
+    const tag = await this._ensureTag(tagName)
+    for (let i = 0; i < fresh.length; i += CHUNK) {
+      const batch = fresh.slice(i, i + CHUNK).map((r) => ({ ...r, kind: 'business' as const }))
+      const created = await q<{ id: string }[]>(supabase.from('contacts').insert(batch).select('id'))
+      if (tag && created.length) {
+        await q(supabase.from('contact_tags').insert(created.map((c) => ({ contact_id: c.id, tag_id: tag.id }))))
+      }
+      inserted += created.length
+      onProgress?.(Math.min(i + CHUNK, fresh.length), fresh.length)
+    }
+    return { inserted, skipped: rows.length - fresh.length }
+  },
+
+  async _ensureTag(name: string): Promise<Tag | null> {
+    const existing = await q<Tag[]>(supabase.from('tags').select('*').ilike('name', name))
+    if (existing[0]) return existing[0]
+    return q<Tag>(supabase.from('tags').insert({ name, color: '#0a66c2' }).select().single())
   },
 
   async addTag({ contactId, name }: { contactId: string; name: string }) {

@@ -23,9 +23,76 @@ import { Avatar } from '../components/Avatar'
 import { ContactForm } from '../components/ContactForm'
 import { Icon, KIND_ICON } from '../components/Icon'
 import { InteractionComposer } from '../components/InteractionComposer'
+import { Modal } from '../components/Modal'
 import { ReminderForm } from '../components/ReminderForm'
 import { ReminderItem } from '../components/ReminderItem'
-import { btnDanger, btnGhost, card, chip, input } from '../components/ui'
+import { btnDanger, btnGhost, btnPrimary, card, chip, input } from '../components/ui'
+
+/** Fold another contact into this one, keeping all information from both. */
+function MergeModal({ contact, onClose }: { contact: ContactOverview; onClose: () => void }) {
+  const navigate = useNavigate()
+  const { data: contacts } = useContacts()
+  const merge = useMut(api.mergeContacts)
+  const [loserId, setLoserId] = useState('')
+  const [search, setSearch] = useState('')
+
+  const options = (contacts ?? [])
+    .filter((c) => c.id !== contact.id)
+    .filter((c) => !search.trim() || fullName(c).toLowerCase().includes(search.toLowerCase()))
+    .slice(0, 50)
+  const loser = (contacts ?? []).find((c) => c.id === loserId)
+
+  const doMerge = async () => {
+    if (!loser) return
+    if (!window.confirm(`Merge “${fullName(loser)}” into “${fullName(contact)}”? All of their notes, groups, connections, and details move here, and the duplicate is removed. This can’t be undone.`))
+      return
+    await merge.mutateAsync({ winner: contact.id, loser: loser.id })
+    onClose()
+    navigate(`/contacts/${contact.id}`)
+  }
+
+  return (
+    <Modal title={`Merge into ${fullName(contact)}`} onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-sm text-slate-400">
+          Pick a duplicate to fold in. Everything from both profiles is kept — notes, work history, family, groups,
+          connections, tags, reminders — and empty fields on <strong>{fullName(contact)}</strong> are filled from the
+          other. The other contact is then removed.
+        </p>
+        <input className={input} placeholder="Search for the duplicate…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-800 divide-y divide-slate-800">
+          {options.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setLoserId(c.id)}
+              className={`w-full flex items-center gap-2 p-2 text-left text-sm ${
+                loserId === c.id ? 'bg-indigo-600/20 text-indigo-200' : 'text-slate-200 hover:bg-slate-800'
+              }`}
+            >
+              <Avatar contact={c} size="sm" />
+              <span className="min-w-0">
+                <span className="block truncate">{fullName(c)}</span>
+                <span className="block text-xs text-slate-500 truncate">
+                  {[c.title, c.company].filter(Boolean).join(' @ ') || '—'}
+                </span>
+              </span>
+            </button>
+          ))}
+          {options.length === 0 && <p className="p-3 text-sm text-slate-600">No matches.</p>}
+        </div>
+        {merge.isError && <p className="text-sm text-red-400">{(merge.error as Error).message}</p>}
+        <div className="flex justify-end gap-2">
+          <button className={btnGhost} onClick={onClose}>
+            Cancel
+          </button>
+          <button className={btnPrimary} onClick={doMerge} disabled={!loser || merge.isPending}>
+            {merge.isPending ? 'Merging…' : loser ? `Merge ${fullName(loser)} in` : 'Pick a contact'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
 
 const RELATIONS: Relation[] = ['spouse', 'partner', 'child', 'parent', 'sibling', 'pet', 'other']
 const GROUP_TYPES: GroupType[] = ['company', 'church', 'sports', 'school', 'club', 'nonprofit', 'family', 'other']
@@ -599,6 +666,7 @@ export function ContactProfile() {
   const [editing, setEditing] = useState(false)
   const [addingReminder, setAddingReminder] = useState(false)
   const [editingInteractionId, setEditingInteractionId] = useState<string | null>(null)
+  const [merging, setMerging] = useState(false)
 
   if (isLoading) return <p className="text-slate-500 text-sm">Loading…</p>
   if (!contact) return <p className="text-slate-500 text-sm">Contact not found.</p>
@@ -637,6 +705,9 @@ export function ContactProfile() {
             </div>
           </div>
           <div className="flex gap-1">
+            <button className={btnGhost} onClick={() => setMerging(true)} aria-label="Merge duplicate" title="Merge a duplicate into this contact">
+              <Icon name="merge" className="w-4 h-4" />
+            </button>
             <button className={btnGhost} onClick={() => setEditing(true)} aria-label="Edit">
               <Icon name="edit" className="w-4 h-4" />
             </button>
@@ -808,6 +879,7 @@ export function ContactProfile() {
 
       {editing && <ContactForm contact={contact} onClose={() => setEditing(false)} />}
       {addingReminder && <ReminderForm contactId={contact.id} onClose={() => setAddingReminder(false)} />}
+      {merging && <MergeModal contact={contact} onClose={() => setMerging(false)} />}
     </div>
   )
 }

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/hooks'
 import { download } from '../lib/utils'
 import { applyTheme, currentTheme, THEME_SWATCH, THEMES, type Theme } from '../lib/theme'
+import { Icon } from '../components/Icon'
 import { btnGhost, btnPrimary, card } from '../components/ui'
 
 const THEME_LABELS: Record<Theme, string> = {
@@ -79,13 +81,18 @@ export function Settings() {
       </section>
 
       <section className={`${card} p-4 space-y-3`}>
-        <h2 className="text-sm font-semibold text-slate-300">Your data</h2>
+        <h2 className="text-sm font-semibold text-slate-300">Import & export</h2>
         <p className="text-sm text-slate-400">
-          Download everything — contacts, notes, reminders, relationships — as a single JSON file. Your data is never locked in.
+          Bring in your LinkedIn connections or any contacts CSV, or download everything as JSON. Your data is never locked in.
         </p>
-        <button className={btnPrimary} onClick={exportAll} disabled={exporting}>
-          {exporting ? 'Exporting…' : 'Export all data'}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/import" className={btnPrimary}>
+            <Icon name="upload" className="w-4 h-4" /> Import contacts (CSV)
+          </Link>
+          <button className={btnGhost} onClick={exportAll} disabled={exporting}>
+            {exporting ? 'Exporting…' : 'Export all data'}
+          </button>
+        </div>
       </section>
 
       <section className={`${card} p-4 space-y-2`}>
