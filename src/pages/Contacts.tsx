@@ -6,25 +6,49 @@ import { Avatar } from '../components/Avatar'
 import { Icon } from '../components/Icon'
 import { btnPrimary, card, chip, input } from '../components/ui'
 
-type Filter = 'all' | 'business' | 'personal' | 'overdue'
+type Filter = 'all' | 'business' | 'personal' | 'overdue' | 'favorites'
 type Sort = 'name' | 'recent' | 'added'
 type View = 'rows' | 'tiles'
+type TileSize = 'small' | 'medium' | 'large'
+
+const TILE_SIZES: TileSize[] = ['small', 'medium', 'large']
+const TILE: Record<TileSize, { grid: string; avatar: 'md' | 'lg' | 'xl'; pad: string; name: string }> = {
+  small: { grid: 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6', avatar: 'md', pad: 'p-3', name: 'text-sm' },
+  medium: { grid: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4', avatar: 'lg', pad: 'p-4', name: 'text-base' },
+  large: { grid: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3', avatar: 'xl', pad: 'p-5', name: 'text-lg' },
+}
 
 export function Contacts() {
   const { data: contacts, isLoading } = useContacts()
   const { data: allTags } = useAllContactTags()
   const { data: photos } = usePhotoUrls((contacts ?? []).map((c) => c.photo_url))
   const quickAdd = useMut(api.quickAddContact)
+  const setFavorite = useMut(api.setFavorite)
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [sort, setSort] = useState<Sort>('name')
   const [newName, setNewName] = useState('')
   const [view, setView] = useState<View>(() => (localStorage.getItem('contactsView') === 'tiles' ? 'tiles' : 'rows'))
+  const [tileSize, setTileSize] = useState<TileSize>(() => {
+    const s = localStorage.getItem('contactsTileSize')
+    return s === 'small' || s === 'large' ? s : 'medium'
+  })
 
   const switchView = (v: View) => {
     setView(v)
     localStorage.setItem('contactsView', v)
+  }
+
+  const switchTileSize = (s: TileSize) => {
+    setTileSize(s)
+    localStorage.setItem('contactsTileSize', s)
+  }
+
+  const toggleFavorite = (e: React.MouseEvent, id: string, favorite: boolean) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setFavorite.mutate({ id, favorite: !favorite })
   }
 
   const tagsByContact = useMemo(() => {
@@ -42,6 +66,7 @@ export function Contacts() {
     let l = contacts ?? []
     if (filter === 'business' || filter === 'personal') l = l.filter((c) => c.kind === filter || c.kind === 'both')
     if (filter === 'overdue') l = l.filter(kitOverdue)
+    if (filter === 'favorites') l = l.filter((c) => c.favorite)
     if (search.trim()) {
       const s = search.toLowerCase()
       l = l.filter((c) =>
@@ -50,12 +75,16 @@ export function Contacts() {
           .some((v) => v!.toLowerCase().includes(s)),
       )
     }
-    const sorted = [...l]
-    if (sort === 'name') sorted.sort((a, b) => fullName(a).localeCompare(fullName(b)))
-    if (sort === 'recent')
-      sorted.sort((a, b) => new Date(b.last_contacted ?? 0).getTime() - new Date(a.last_contacted ?? 0).getTime())
-    if (sort === 'added') sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    return sorted
+    const cmp =
+      sort === 'recent'
+        ? (a: typeof l[number], b: typeof l[number]) =>
+            new Date(b.last_contacted ?? 0).getTime() - new Date(a.last_contacted ?? 0).getTime()
+        : sort === 'added'
+          ? (a: typeof l[number], b: typeof l[number]) =>
+              new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          : (a: typeof l[number], b: typeof l[number]) => fullName(a).localeCompare(fullName(b))
+    // Favourites always float to the top, then the chosen sort within each group.
+    return [...l].sort((a, b) => Number(b.favorite) - Number(a.favorite) || cmp(a, b))
   }, [contacts, filter, search, sort, tagsByContact])
 
   const submitQuickAdd = async (e: React.FormEvent) => {
@@ -119,16 +148,32 @@ export function Contacts() {
             <Icon name="grid" className="w-4 h-4" />
           </button>
         </div>
+        {view === 'tiles' && (
+          <div className="flex rounded-lg border border-slate-700 overflow-hidden" role="group" aria-label="Tile size">
+            {TILE_SIZES.map((s) => (
+              <button
+                key={s}
+                onClick={() => switchTileSize(s)}
+                className={`px-2.5 py-2 text-xs capitalize ${
+                  tileSize === s ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title={`${s.charAt(0).toUpperCase() + s.slice(1)} tiles`}
+              >
+                {s.charAt(0).toUpperCase()}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      <div className="flex gap-1.5">
-        {(['all', 'business', 'personal', 'overdue'] as Filter[]).map((f) => (
+      <div className="flex flex-wrap gap-1.5">
+        {(['all', 'favorites', 'business', 'personal', 'overdue'] as Filter[]).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
             className={`${chip} ${filter === f ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
           >
-            {f === 'overdue' ? 'needs a ping' : f}
+            {f === 'overdue' ? 'needs a ping' : f === 'favorites' ? '★ favourites' : f}
           </button>
         ))}
       </div>
@@ -140,22 +185,33 @@ export function Contacts() {
           {contacts?.length === 0 ? 'No contacts yet — add your first person above.' : 'No matches.'}
         </div>
       ) : view === 'tiles' ? (
-        <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <ul className={`grid ${TILE[tileSize].grid} gap-3`}>
           {list.map((c) => (
             <li key={c.id}>
               <Link
                 to={`/contacts/${c.id}`}
-                className={`${card} flex flex-col items-center text-center p-4 gap-2 hover:border-slate-600 h-full`}
+                className={`${card} relative flex flex-col items-center text-center ${TILE[tileSize].pad} gap-2 hover:border-slate-600 h-full`}
               >
-                <Avatar contact={c} size="lg" src={c.photo_url ? photos?.[c.photo_url] : undefined} />
-                <p className="font-medium text-slate-100 leading-tight">
+                <button
+                  onClick={(e) => toggleFavorite(e, c.id, c.favorite)}
+                  className={`absolute top-2 right-2 ${c.favorite ? 'text-amber-400' : 'text-slate-600 hover:text-amber-400'}`}
+                  aria-label={c.favorite ? 'Remove from favourites' : 'Add to favourites'}
+                  aria-pressed={c.favorite}
+                  title={c.favorite ? 'Favourited' : 'Favourite'}
+                >
+                  <Icon name="star" className="w-4 h-4" filled={c.favorite} />
+                </button>
+                <Avatar contact={c} size={TILE[tileSize].avatar} src={c.photo_url ? photos?.[c.photo_url] : undefined} />
+                <p className={`font-medium text-slate-100 leading-tight ${TILE[tileSize].name}`}>
                   {fullName(c)}
                   {kitOverdue(c) && <span className={`${chip} bg-red-500/15 text-red-400 ml-1.5 align-middle`}>ping</span>}
                 </p>
-                <p className="text-xs text-slate-500 line-clamp-2">
-                  {[c.title, c.company].filter(Boolean).join(' @ ') || c.location || c.summary || '—'}
-                </p>
-                {(tagsByContact.get(c.id) ?? []).length > 0 && (
+                {tileSize !== 'small' && (
+                  <p className="text-xs text-slate-500 line-clamp-2">
+                    {[c.title, c.company].filter(Boolean).join(' @ ') || c.location || c.summary || '—'}
+                  </p>
+                )}
+                {tileSize !== 'small' && (tagsByContact.get(c.id) ?? []).length > 0 && (
                   <div className="flex flex-wrap gap-1 justify-center">
                     {(tagsByContact.get(c.id) ?? []).slice(0, 3).map((t) => (
                       <span key={t.id} className={chip} style={{ background: `${t.color}26`, color: t.color }}>
@@ -164,9 +220,11 @@ export function Contacts() {
                     ))}
                   </div>
                 )}
-                <p className="text-[11px] text-slate-600 mt-auto">
-                  {c.last_contacted ? ago(c.last_contacted) : 'no contact logged'}
-                </p>
+                {tileSize !== 'small' && (
+                  <p className="text-[11px] text-slate-600 mt-auto">
+                    {c.last_contacted ? ago(c.last_contacted) : 'no contact logged'}
+                  </p>
+                )}
               </Link>
             </li>
           ))}
@@ -176,6 +234,15 @@ export function Contacts() {
           {list.map((c) => (
             <li key={c.id}>
               <Link to={`/contacts/${c.id}`} className="flex items-center gap-3 p-3 hover:bg-slate-800/50">
+                <button
+                  onClick={(e) => toggleFavorite(e, c.id, c.favorite)}
+                  className={`shrink-0 ${c.favorite ? 'text-amber-400' : 'text-slate-600 hover:text-amber-400'}`}
+                  aria-label={c.favorite ? 'Remove from favourites' : 'Add to favourites'}
+                  aria-pressed={c.favorite}
+                  title={c.favorite ? 'Favourited' : 'Favourite'}
+                >
+                  <Icon name="star" className="w-4 h-4" filled={c.favorite} />
+                </button>
                 <Avatar contact={c} src={c.photo_url ? photos?.[c.photo_url] : undefined} />
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-slate-100 flex items-center gap-2">

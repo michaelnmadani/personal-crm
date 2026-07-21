@@ -260,6 +260,9 @@ export const api = {
 
   deleteContact: (id: string) => q<null>(supabase.from('contacts').delete().eq('id', id)),
 
+  setFavorite: ({ id, favorite }: { id: string; favorite: boolean }) =>
+    q<null>(supabase.from('contacts').update({ favorite }).eq('id', id)),
+
   addFamily: (f: Omit<FamilyMember, 'id'>) => q<FamilyMember>(supabase.from('family_members').insert(f).select().single()),
   deleteFamily: (id: string) => q<null>(supabase.from('family_members').delete().eq('id', id)),
 

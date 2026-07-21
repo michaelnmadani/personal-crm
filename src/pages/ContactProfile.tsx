@@ -699,6 +699,7 @@ export function ContactProfile() {
   const { data: interactions } = useInteractions(id!)
   const { data: reminders } = useOpenReminders()
   const del = useMut(api.deleteContact)
+  const setFavorite = useMut(api.setFavorite)
   const deleteInteraction = useMut(api.deleteInteraction)
   const [editing, setEditing] = useState(false)
   const [addingReminder, setAddingReminder] = useState(false)
@@ -742,6 +743,15 @@ export function ContactProfile() {
             </div>
           </div>
           <div className="flex gap-1">
+            <button
+              className={contact.favorite ? btnGhost + ' text-amber-400' : btnGhost}
+              onClick={() => setFavorite.mutate({ id: contact.id, favorite: !contact.favorite })}
+              aria-label={contact.favorite ? 'Remove from favourites' : 'Add to favourites'}
+              aria-pressed={contact.favorite}
+              title={contact.favorite ? 'Favourited — shown first in Contacts' : 'Favourite (show first in Contacts)'}
+            >
+              <Icon name="star" className="w-4 h-4" filled={contact.favorite} />
+            </button>
             <button className={btnGhost} onClick={() => setMerging(true)} aria-label="Merge duplicate" title="Merge a duplicate into this contact">
               <Icon name="merge" className="w-4 h-4" />
             </button>

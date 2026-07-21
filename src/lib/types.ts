@@ -22,6 +22,7 @@ export type Contact = {
   met_on: string | null
   keep_in_touch_days: number | null
   summary: string | null
+  favorite: boolean
   archived: boolean
   created_at: string
   updated_at: string

@@ -39,6 +39,7 @@ const PATHS: Record<string, string[]> = {
   rows: ['M8 6h13', 'M8 12h13', 'M8 18h13', 'M3 6h.01', 'M3 12h.01', 'M3 18h.01'],
   merge: ['M8 3H5a2 2 0 0 0-2 2v3', 'M3 12a9 9 0 0 0 9 9 9 9 0 0 0 9-9', 'M16 3h3a2 2 0 0 1 2 2v3', 'M12 8v8', 'M9 13l3 3 3-3'],
   upload: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M17 8l-5-5-5 5', 'M12 3v12'],
+  star: ['M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z'],
 }
 
 // Filled brand glyphs (rendered with fill, not stroke).
@@ -47,7 +48,15 @@ const FILL_PATHS: Record<string, string> = {
     'M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.225 0z',
 }
 
-export function Icon({ name, className = 'w-5 h-5' }: { name: string; className?: string }) {
+export function Icon({
+  name,
+  className = 'w-5 h-5',
+  filled = false,
+}: {
+  name: string
+  className?: string
+  filled?: boolean
+}) {
   if (FILL_PATHS[name]) {
     return (
       <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
@@ -58,7 +67,7 @@ export function Icon({ name, className = 'w-5 h-5' }: { name: string; className?
   return (
     <svg
       viewBox="0 0 24 24"
-      fill="none"
+      fill={filled ? 'currentColor' : 'none'}
       stroke="currentColor"
       strokeWidth={2}
       strokeLinecap="round"
