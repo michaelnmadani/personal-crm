@@ -7,3 +7,116 @@ html {
 body {
   @apply bg-slate-950 text-slate-100 antialiased;
 }
+
+/*
+ * Themes.
+ * The app styles everything with the slate scale (neutrals) and indigo (accent),
+ * and Tailwind v4 utilities read colors from CSS variables — so each theme is
+ * just a re-mapping of those variables. "Dark" is the default (no overrides).
+ */
+
+/* Light: inverted neutral scale, same indigo accent. */
+[data-theme='light'] {
+  color-scheme: light;
+  --color-slate-950: #eef2f7;
+  --color-slate-900: #ffffff;
+  --color-slate-800: #e2e8f0;
+  --color-slate-700: #cbd5e1;
+  --color-slate-600: #8b98ab;
+  --color-slate-500: #64748b;
+  --color-slate-400: #4b5766;
+  --color-slate-300: #334155;
+  --color-slate-200: #24303f;
+  --color-slate-100: #0f172a;
+}
+
+/* Business: crisp light grays with a conservative navy accent. */
+[data-theme='business'] {
+  color-scheme: light;
+  --color-slate-950: #f4f5f7;
+  --color-slate-900: #ffffff;
+  --color-slate-800: #e7eaee;
+  --color-slate-700: #d3d9e0;
+  --color-slate-600: #8a94a3;
+  --color-slate-500: #5f6b7a;
+  --color-slate-400: #47535f;
+  --color-slate-300: #333d4a;
+  --color-slate-200: #232c37;
+  --color-slate-100: #101820;
+  --color-indigo-600: #1e4a7a;
+  --color-indigo-500: #265d99;
+  --color-indigo-400: #2f6cb0;
+  --color-indigo-300: #3f7ec4;
+}
+
+/* Christmas: deep pine green with holly red accent. */
+[data-theme='christmas'] {
+  --color-slate-950: #0a1810;
+  --color-slate-900: #0f231a;
+  --color-slate-800: #1a3527;
+  --color-slate-700: #2a4a37;
+  --color-slate-600: #5d7f6d;
+  --color-slate-500: #7d9c8b;
+  --color-slate-400: #a3c2b1;
+  --color-slate-300: #c2dccf;
+  --color-slate-200: #dcefe4;
+  --color-slate-100: #f2fbf5;
+  --color-indigo-600: #c02626;
+  --color-indigo-500: #d93636;
+  --color-indigo-400: #e85555;
+  --color-indigo-300: #f28b8b;
+}
+
+/* Anime: midnight violet with hot pink accent. */
+[data-theme='anime'] {
+  --color-slate-950: #120d1d;
+  --color-slate-900: #1a1329;
+  --color-slate-800: #2a2040;
+  --color-slate-700: #3b2e57;
+  --color-slate-600: #71638f;
+  --color-slate-500: #9184ad;
+  --color-slate-400: #b0a4c9;
+  --color-slate-300: #cbc2df;
+  --color-slate-200: #e2dcf0;
+  --color-slate-100: #f5f1fc;
+  --color-indigo-600: #db2777;
+  --color-indigo-500: #ec4899;
+  --color-indigo-400: #f472b6;
+  --color-indigo-300: #f9a8d4;
+}
+
+/* Forest: mossy dark greens with emerald accent. */
+[data-theme='forest'] {
+  --color-slate-950: #0c150e;
+  --color-slate-900: #121f15;
+  --color-slate-800: #1e3123;
+  --color-slate-700: #2e4534;
+  --color-slate-600: #647d6b;
+  --color-slate-500: #83988a;
+  --color-slate-400: #a3b6a9;
+  --color-slate-300: #c1d2c6;
+  --color-slate-200: #dceadf;
+  --color-slate-100: #f0f7f1;
+  --color-indigo-600: #047857;
+  --color-indigo-500: #059669;
+  --color-indigo-400: #34d399;
+  --color-indigo-300: #6ee7b7;
+}
+
+/* Ocean: deep sea blues with cyan accent. */
+[data-theme='ocean'] {
+  --color-slate-950: #06131f;
+  --color-slate-900: #0a1d2e;
+  --color-slate-800: #143349;
+  --color-slate-700: #1f4763;
+  --color-slate-600: #5b7f97;
+  --color-slate-500: #7c9cb2;
+  --color-slate-400: #9dbacd;
+  --color-slate-300: #bed5e3;
+  --color-slate-200: #dcecf4;
+  --color-slate-100: #f0f9fd;
+  --color-indigo-600: #0e7490;
+  --color-indigo-500: #0891b2;
+  --color-indigo-400: #22d3ee;
+  --color-indigo-300: #67e8f9;
+}
