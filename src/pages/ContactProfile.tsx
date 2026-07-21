@@ -28,6 +28,27 @@ import { ReminderForm } from '../components/ReminderForm'
 import { ReminderItem } from '../components/ReminderItem'
 import { btnDanger, btnGhost, btnPrimary, card, chip, input } from '../components/ui'
 
+/** Score how likely `b` is a duplicate of `a`, so real duplicates surface first.
+ *  Weighted toward matching surnames and first-name/initial overlap; company is a
+ *  tiebreaker. Returns 0 for no meaningful overlap. */
+function nameSimilarity(a: ContactOverview, b: ContactOverview): number {
+  const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
+  const af = norm(a.first_name)
+  const bf = norm(b.first_name)
+  const al = norm(a.last_name)
+  const bl = norm(b.last_name)
+  let score = 0
+  if (al && bl && al === bl) score += 6
+  if (af && bf) {
+    if (af === bf) score += 4
+    else if (af[0] === bf[0]) score += 1
+  }
+  // Full-name exact match (handles single-name / no-surname contacts too).
+  if (fullName(a).trim().toLowerCase() === fullName(b).trim().toLowerCase()) score += 5
+  if (score > 0 && norm(a.company) && norm(a.company) === norm(b.company)) score += 1
+  return score
+}
+
 /** Fold another contact into this one, keeping all information from both. */
 function MergeModal({ contact, onClose }: { contact: ContactOverview; onClose: () => void }) {
   const navigate = useNavigate()
@@ -36,10 +57,19 @@ function MergeModal({ contact, onClose }: { contact: ContactOverview; onClose: (
   const [loserId, setLoserId] = useState('')
   const [search, setSearch] = useState('')
 
-  const options = (contacts ?? [])
-    .filter((c) => c.id !== contact.id)
-    .filter((c) => !search.trim() || fullName(c).toLowerCase().includes(search.toLowerCase()))
-    .slice(0, 50)
+  const q = search.trim().toLowerCase()
+  const candidates = (contacts ?? []).filter((c) => c.id !== contact.id)
+  const suggested = !q
+    ? candidates
+        .map((c) => ({ c, s: nameSimilarity(contact, c) }))
+        .filter((x) => x.s > 0)
+        .sort((a, b) => b.s - a.s)
+        .slice(0, 50)
+        .map((x) => x.c)
+    : null
+  const options = q
+    ? candidates.filter((c) => fullName(c).toLowerCase().includes(q)).slice(0, 50)
+    : suggested ?? []
   const loser = (contacts ?? []).find((c) => c.id === loserId)
 
   const doMerge = async () => {
@@ -60,6 +90,9 @@ function MergeModal({ contact, onClose }: { contact: ContactOverview; onClose: (
           other. The other contact is then removed.
         </p>
         <input className={input} placeholder="Search for the duplicate…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        {!search.trim() && options.length > 0 && (
+          <p className="text-xs text-slate-500">Likely duplicates — similar names first. Search to find anyone else.</p>
+        )}
         <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-800 divide-y divide-slate-800">
           {options.map((c) => (
             <button
@@ -78,7 +111,11 @@ function MergeModal({ contact, onClose }: { contact: ContactOverview; onClose: (
               </span>
             </button>
           ))}
-          {options.length === 0 && <p className="p-3 text-sm text-slate-600">No matches.</p>}
+          {options.length === 0 && (
+            <p className="p-3 text-sm text-slate-600">
+              {search.trim() ? 'No matches.' : 'No obvious duplicates — search by name to pick anyone.'}
+            </p>
+          )}
         </div>
         {merge.isError && <p className="text-sm text-red-400">{(merge.error as Error).message}</p>}
         <div className="flex justify-end gap-2">
