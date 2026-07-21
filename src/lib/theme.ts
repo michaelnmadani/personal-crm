@@ -8,7 +8,7 @@ export const THEME_SWATCH: Record<Theme, [string, string]> = {
   business: ['#f4f5f7', '#1e4a7a'],
   christmas: ['#0a1810', '#c02626'],
   anime: ['#120d1d', '#ec4899'],
-  forest: ['#0c150e', '#059669'],
+  forest: ['#eef3d5', '#9a5730'],
   ocean: ['#06131f', '#0891b2'],
 }
 
