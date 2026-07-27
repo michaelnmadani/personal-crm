@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   addMonths,
@@ -12,6 +12,7 @@ import {
   startOfMonth,
   startOfWeek,
 } from 'date-fns'
+import { weekendCombined } from '../lib/calendarPrefs'
 import { Icon } from './Icon'
 import { card } from './ui'
 
@@ -52,10 +53,16 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
   const [month, setMonth] = useState(() => startOfMonth(new Date()))
   const [picked, setPicked] = useState<Date | null>(null)
   const [hover, setHover] = useState<{ item: CalItem; top: number; left: number } | null>(null)
+  const combined = weekendCombined()
 
   const gridStart = startOfWeek(startOfMonth(month), { weekStartsOn: 1 })
   const gridEnd = endOfWeek(endOfMonth(month), { weekStartsOn: 1 })
   const days = useMemo(() => eachDayOfInterval({ start: gridStart, end: gridEnd }), [gridStart, gridEnd])
+  const weeks = useMemo(() => {
+    const out: Date[][] = []
+    for (let i = 0; i < days.length; i += 7) out.push(days.slice(i, i + 7))
+    return out
+  }, [days])
 
   const items = useMemo(() => itemsFor(gridStart, gridEnd), [itemsFor, gridStart, gridEnd])
   const byDay = useMemo(() => {
@@ -80,6 +87,50 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
     })
   }
   const pickedItems = picked ? dayItems(picked) : []
+
+  /** One day box. `half` is used for the stacked Sat/Sun pair, which shares a
+   *  single column and so must not claim a full cell's height each. */
+  const dayCell = (d: Date, half = false) => {
+    const list = dayItems(d)
+    const outside = !isSameMonth(d, month)
+    const isPicked = picked && isSameDay(d, picked)
+    const today = isToday(d)
+    return (
+      <button
+        key={d.toISOString()}
+        onClick={() => setPicked(isPicked ? null : d)}
+        className={`${half ? 'min-h-0' : 'min-h-16 cal-cell'} flex flex-col items-stretch rounded-lg border p-1 text-left overflow-hidden transition-colors ${
+          today
+            ? 'border-indigo-500 bg-indigo-500/30'
+            : isPicked
+              ? 'border-indigo-500 bg-indigo-500/10'
+              : 'border-slate-800 hover:border-slate-600'
+        } ${outside ? 'opacity-40' : ''}`}
+      >
+        <span className={`block cal-day font-bold leading-none ${today ? 'text-slate-100' : 'text-slate-300'}`}>
+          {format(d, 'd')}
+        </span>
+        {/* Details wrap onto as many lines as they need rather than being
+            truncated — there's vertical room for it on desktop. */}
+        <span className="mt-0.5 block space-y-0.5">
+          {list.slice(0, half ? 2 : 4).map((it) => (
+            <span
+              key={it.id}
+              onMouseEnter={(e) => showTip(it, e.currentTarget)}
+              onMouseLeave={() => setHover(null)}
+              className={`block rounded px-1 py-0.5 cal-chip leading-tight break-words line-clamp-2 ${STYLE[it.kind].chip}`}
+            >
+              {it.initials && <span className="font-bold">{it.initials} </span>}
+              {it.label}
+            </span>
+          ))}
+          {list.length > (half ? 2 : 4) && (
+            <span className="block cal-chip text-slate-400">+{list.length - (half ? 2 : 4)} more</span>
+          )}
+        </span>
+      </button>
+    )
+  }
 
   return (
     <section className={`${card} p-4`}>
@@ -115,52 +166,25 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
         </div>
       </header>
 
-      <div className="grid grid-cols-7 gap-1 text-center cal-dow font-medium text-slate-400 mb-1">
-        {DOW.map((d) => (
+      <div className={`grid ${combined ? 'grid-cols-6' : 'grid-cols-7'} gap-1 text-center cal-dow font-medium text-slate-400 mb-1`}>
+        {(combined ? [...DOW.slice(0, 5), 'Sat / Sun'] : DOW).map((d) => (
           <div key={d}>{d}</div>
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-1">
-        {days.map((d) => {
-          const list = dayItems(d)
-          const outside = !isSameMonth(d, month)
-          const isPicked = picked && isSameDay(d, picked)
-          const today = isToday(d)
-          return (
-            <button
-              key={d.toISOString()}
-              onClick={() => setPicked(isPicked ? null : d)}
-              className={`min-h-16 cal-cell flex flex-col items-stretch rounded-lg border p-1 text-left overflow-hidden transition-colors ${
-                today
-                  ? 'border-indigo-500 bg-indigo-500/30'
-                  : isPicked
-                    ? 'border-indigo-500 bg-indigo-500/10'
-                    : 'border-slate-800 hover:border-slate-600'
-              } ${outside ? 'opacity-40' : ''}`}
-            >
-              <span className={`block cal-day font-bold leading-none ${today ? 'text-slate-100' : 'text-slate-300'}`}>
-                {format(d, 'd')}
-              </span>
-              {/* Details wrap onto as many lines as they need rather than being
-                  truncated — there's vertical room for it on desktop. */}
-              <span className="mt-0.5 block space-y-0.5">
-                {list.slice(0, 4).map((it) => (
-                  <span
-                    key={it.id}
-                    onMouseEnter={(e) => showTip(it, e.currentTarget)}
-                    onMouseLeave={() => setHover(null)}
-                    className={`block rounded px-1 py-0.5 cal-chip leading-tight break-words line-clamp-2 ${STYLE[it.kind].chip}`}
-                  >
-                    {it.initials && <span className="font-bold">{it.initials} </span>}
-                    {it.label}
-                  </span>
-                ))}
-                {list.length > 4 && <span className="block cal-chip text-slate-400">+{list.length - 4} more</span>}
-              </span>
-            </button>
-          )
-        })}
+      <div className={`grid ${combined ? 'grid-cols-6' : 'grid-cols-7'} gap-1`}>
+        {combined
+          ? weeks.map((wk) => (
+              <Fragment key={wk[0].toISOString()}>
+                {wk.slice(0, 5).map((d) => dayCell(d))}
+                {/* Sat and Sun share one column, stacked, to free up width. */}
+                <div className="min-h-16 cal-cell grid grid-rows-2 gap-1">
+                  {dayCell(wk[5], true)}
+                  {dayCell(wk[6], true)}
+                </div>
+              </Fragment>
+            ))
+          : days.map((d) => dayCell(d))}
       </div>
 
       <div className="flex flex-wrap gap-3 mt-3 cal-dow text-slate-400">

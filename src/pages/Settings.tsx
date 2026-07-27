@@ -6,6 +6,7 @@ import { api } from '../lib/hooks'
 import { download } from '../lib/utils'
 import { applyTheme, currentTheme, THEME_SWATCH, THEMES, type Theme } from '../lib/theme'
 import { applyTextSize, currentTextSize, TEXT_SIZE_LABEL, TEXT_SIZES, type TextSize } from '../lib/textSize'
+import { setWeekendCombined, weekendCombined } from '../lib/calendarPrefs'
 import { Icon } from '../components/Icon'
 import { btnGhost, btnPrimary, card } from '../components/ui'
 
@@ -25,6 +26,7 @@ export function Settings() {
   const [theme, setTheme] = useState<Theme>(currentTheme)
   const [refreshing, setRefreshing] = useState(false)
   const [textSize, setTextSize] = useState<TextSize>(currentTextSize)
+  const [combineWeekend, setCombineWeekend] = useState(weekendCombined)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? ''))
@@ -126,6 +128,27 @@ export function Settings() {
             )
           })}
         </div>
+      </section>
+
+      <section className={`${card} p-4 space-y-3`}>
+        <h2 className="text-sm font-semibold text-slate-300">Calendar</h2>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={combineWeekend}
+            onChange={(e) => {
+              setCombineWeekend(e.target.checked)
+              setWeekendCombined(e.target.checked)
+            }}
+            className="mt-0.5 w-4 h-4 shrink-0 accent-indigo-600"
+          />
+          <span>
+            <span className="block text-sm text-slate-100">Combine Saturday and Sunday</span>
+            <span className="block text-sm text-slate-400">
+              Stacks the weekend into a single column, giving the five weekdays more room.
+            </span>
+          </span>
+        </label>
       </section>
 
       <section className={`${card} p-4 space-y-3`}>
