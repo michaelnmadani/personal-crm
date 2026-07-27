@@ -41,6 +41,37 @@ const CLUSTER_GAP = 90
 type Pos = { x: number; y: number }
 
 /**
+ * Wrap a hub name onto multiple lines and return the pill size that fits it.
+ * Cytoscape's `width: 'label'` auto-sizing is deprecated (it resolves to zero),
+ * so the pill is measured here and fed back through data() mappers.
+ */
+function hubLabel(name: string, fontPx: number, maxChars = 18) {
+  const lines: string[] = []
+  let cur = ''
+  for (const word of name.trim().split(/\s+/)) {
+    if (!cur) cur = word
+    else if (`${cur} ${word}`.length <= maxChars) cur += ` ${word}`
+    else {
+      lines.push(cur)
+      cur = word
+    }
+  }
+  if (cur) lines.push(cur)
+  // Hard-break any single word that still overflows (e.g. a long domain).
+  const wrapped: string[] = []
+  for (const line of lines) {
+    if (line.length <= maxChars) wrapped.push(line)
+    else for (let i = 0; i < line.length; i += maxChars) wrapped.push(line.slice(i, i + maxChars))
+  }
+  const widest = Math.max(...wrapped.map((l) => l.length))
+  return {
+    text: wrapped.join('\n'),
+    w: Math.round(Math.max(112, widest * fontPx * 0.62 + 26)),
+    h: Math.round(Math.max(36, wrapped.length * (fontPx + 5) + 18)),
+  }
+}
+
+/**
  * Deterministic hub-and-spoke layout: each company/group hub gets its members
  * on concentric rings sized so every node owns a SLOT-wide arc, then clusters
  * are packed into rows. A force layout (cose) pulls tightly-connected nodes
@@ -68,6 +99,47 @@ function computePositions(els: cytoscape.ElementDefinition[]): Record<string, Po
     claimed.add(d.source)
   }
 
+  // Adjacency from the connections you've drawn (relationship edges — not the
+  // hub spokes or group memberships).
+  const adj = new Map<string, string[]>()
+  for (const e of els) {
+    const d = data(e)
+    if (!d.source || !d.target || d.hub || d.membership) continue
+    adj.set(d.source, [...(adj.get(d.source) ?? []), d.target])
+    adj.set(d.target, [...(adj.get(d.target) ?? []), d.source])
+  }
+
+  /**
+   * Order a cluster's members so connected people come out consecutively.
+   * Ring slots are filled in array order, so consecutive members land side by
+   * side — which keeps a relationship edge as a short hop between neighbours
+   * instead of a chord across the whole cluster.
+   */
+  const orderMembers = (members: string[]) => {
+    if (adj.size === 0) return members
+    const inCluster = new Set(members)
+    const degree = (id: string) => (adj.get(id) ?? []).filter((n) => inCluster.has(n)).length
+    const seen = new Set<string>()
+    const out: string[] = []
+    // Most-connected first, so dense pockets stay contiguous.
+    for (const start of [...members].sort((a, b) => degree(b) - degree(a))) {
+      if (seen.has(start)) continue
+      seen.add(start)
+      const queue = [start]
+      while (queue.length > 0) {
+        const cur = queue.shift()!
+        out.push(cur)
+        for (const nb of adj.get(cur) ?? []) {
+          if (inCluster.has(nb) && !seen.has(nb)) {
+            seen.add(nb)
+            queue.push(nb)
+          }
+        }
+      }
+    }
+    return out
+  }
+
   // Ring plan for n members: fill outward, each ring holding as many nodes as
   // fit at SLOT spacing around its circumference.
   const ringsFor = (n: number) => {
@@ -86,7 +158,7 @@ function computePositions(els: cytoscape.ElementDefinition[]): Record<string, Po
 
   const clusters = hubIds
     .map((id) => {
-      const members = membersOf.get(id) ?? []
+      const members = orderMembers(membersOf.get(id) ?? [])
       const rings = ringsFor(members.length)
       const radius = members.length === 0 ? RING_0 / 2 : rings[rings.length - 1].r + RING_STEP / 2
       return { id, members, rings, radius }
@@ -127,7 +199,7 @@ function computePositions(els: cytoscape.ElementDefinition[]): Record<string, Po
   }
 
   // Anyone with no hub (no shared employer) goes in a tidy grid underneath.
-  const loose = peopleIds.filter((id) => !claimed.has(id))
+  const loose = orderMembers(peopleIds.filter((id) => !claimed.has(id)))
   if (loose.length > 0) {
     const perRow = Math.max(1, Math.floor(targetW / SLOT))
     const top = y + rowH + CLUSTER_GAP
@@ -291,7 +363,8 @@ export function Network() {
       if (!info) continue
       const members = [...info.ids].filter((id) => peopleIds.has(id))
       if (members.length < 2 && !focusCompany) continue
-      els.push({ data: { id: `co-${key}`, label: info.display, company: 1 } })
+      const hl = hubLabel(info.display, 13)
+      els.push({ data: { id: `co-${key}`, label: hl.text, company: 1, hw: hl.w, hh: hl.h } })
       for (const id of members) els.push({ data: { id: `h-${key}-${id}`, source: id, target: `co-${key}`, hub: 1 } })
     }
 
@@ -299,7 +372,8 @@ export function Network() {
     for (const g of (groups ?? []).filter((g) => showGroupIds.has(g.id))) {
       const members = (memberships ?? []).filter((m) => m.group_id === g.id && peopleIds.has(m.contact_id))
       if (members.length === 0) continue
-      els.push({ data: { id: `g-${g.id}`, label: g.name, gtype: g.type, gcolor: GROUP_COLORS[g.type] } })
+      const gl = hubLabel(g.name, 11)
+      els.push({ data: { id: `g-${g.id}`, label: gl.text, gtype: g.type, gcolor: GROUP_COLORS[g.type], hw: gl.w, hh: gl.h } })
       for (const m of members)
         els.push({ data: { id: `m-${g.id}-${m.contact_id}`, source: m.contact_id, target: `g-${g.id}`, membership: 1 } })
     }
@@ -356,11 +430,12 @@ export function Network() {
           selector: 'node[company]',
           style: {
             shape: 'round-rectangle',
-            // Explicit size: `width: 'label'` is deprecated and now resolves to
-            // zero, which made hub nodes render invisibly.
-            width: 140,
-            height: 40,
-            'text-max-width': '128px',
+            // Size measured from the wrapped label — `width: 'label'` is
+            // deprecated and resolves to zero, which rendered hubs invisible.
+            width: 'data(hw)',
+            height: 'data(hh)',
+            'text-wrap': 'wrap',
+            'text-max-width': 'data(hw)',
             'background-color': '#0ea5e9',
             'background-opacity': 0.25,
             'border-color': '#0ea5e9',
@@ -376,9 +451,10 @@ export function Network() {
           selector: 'node[gtype]',
           style: {
             shape: 'round-rectangle',
-            width: 120,
-            height: 32,
-            'text-max-width': '110px',
+            width: 'data(hw)',
+            height: 'data(hh)',
+            'text-wrap': 'wrap',
+            'text-max-width': 'data(hw)',
             'background-color': 'data(gcolor)',
             'background-opacity': 0.2,
             'border-color': 'data(gcolor)',
