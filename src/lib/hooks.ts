@@ -393,6 +393,7 @@ export const api = {
     title: string | null
     location: string | null
     notes: string | null
+    remember?: string | null
     participantIds: string[]
   }) {
     const inter = await q<Interaction>(supabase.from('interactions').insert(fields).select().single())
@@ -419,6 +420,7 @@ export const api = {
     title?: string | null
     location?: string | null
     notes?: string | null
+    remember?: string | null
   }) => q<null>(supabase.from('interactions').update(fields).eq('id', id)),
 
   addReminder: (r: {

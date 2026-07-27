@@ -17,6 +17,7 @@ export function InteractionComposer({ contactId, contactName }: { contactId: str
   const [title, setTitle] = useState('')
   const [location, setLocation] = useState('')
   const [notes, setNotes] = useState('')
+  const [remember, setRemember] = useState('')
   const [others, setOthers] = useState<string[]>([])
   const [expanded, setExpanded] = useState(false)
   const [offerFollowUp, setOfferFollowUp] = useState(false)
@@ -33,11 +34,13 @@ export function InteractionComposer({ contactId, contactName }: { contactId: str
       title: title.trim() || null,
       location: location.trim() || null,
       notes: notes.trim() || null,
+      remember: remember.trim() || null,
       participantIds: [contactId, ...others],
     })
     setTitle('')
     setLocation('')
     setNotes('')
+    setRemember('')
     setOthers([])
     setExpanded(false)
     // Research-backed nudge: following up within 24–48h of a meeting roughly
@@ -92,6 +95,16 @@ export function InteractionComposer({ contactId, contactName }: { contactId: str
         />
         {expanded && (
           <>
+            <div>
+              <span className={label}>Remember — items to carry forward</span>
+              <textarea
+                className={input}
+                rows={2}
+                placeholder="Key takeaways, promises made, things to remember (spouse's name, next steps)…"
+                value={remember}
+                onChange={(e) => setRemember(e.target.value)}
+              />
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <span className={label}>Type</span>

@@ -74,6 +74,7 @@ export type Interaction = {
   location: string | null
   title: string | null
   notes: string | null
+  remember: string | null
   participants?: ParticipantRef[]
 }
 

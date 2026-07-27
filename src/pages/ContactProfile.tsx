@@ -560,6 +560,7 @@ function EditInteraction({ interaction, onClose }: { interaction: Interaction; o
   const [when, setWhen] = useState(format(new Date(interaction.happened_at), "yyyy-MM-dd'T'HH:mm"))
   const [location, setLocation] = useState(interaction.location ?? '')
   const [notes, setNotes] = useState(interaction.notes ?? '')
+  const [remember, setRemember] = useState(interaction.remember ?? '')
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -569,6 +570,7 @@ function EditInteraction({ interaction, onClose }: { interaction: Interaction; o
       happened_at: new Date(when).toISOString(),
       location: location.trim() || null,
       notes: notes.trim() || null,
+      remember: remember.trim() || null,
     })
     onClose()
   }
@@ -583,10 +585,17 @@ function EditInteraction({ interaction, onClose }: { interaction: Interaction; o
       <textarea
         className={input}
         rows={4}
-        placeholder="Comments — what happened, what was said, what to remember…"
+        placeholder="Notes — what happened, what was said…"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         autoFocus
+      />
+      <textarea
+        className={input}
+        rows={2}
+        placeholder="Remember — key takeaways, promises, next steps, personal details to recall…"
+        value={remember}
+        onChange={(e) => setRemember(e.target.value)}
       />
       {update.isError && <p className="text-sm text-red-400">{(update.error as Error).message}</p>}
       <div className="flex justify-end gap-2">
@@ -878,12 +887,23 @@ export function ContactProfile() {
                     {i.notes ? (
                       <p className="text-sm text-slate-300 whitespace-pre-wrap mt-0.5">{i.notes}</p>
                     ) : (
-                      <button
-                        className="text-xs text-slate-500 hover:text-indigo-300 mt-0.5"
-                        onClick={() => setEditingInteractionId(i.id)}
-                      >
-                        + add comments
-                      </button>
+                      !i.remember && (
+                        <button
+                          className="text-xs text-slate-500 hover:text-indigo-300 mt-0.5"
+                          onClick={() => setEditingInteractionId(i.id)}
+                        >
+                          + add notes
+                        </button>
+                      )
+                    )}
+                    {i.remember && (
+                      <div className="mt-1.5 flex gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5">
+                        <Icon name="star" className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" filled />
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-500/80">Remember</p>
+                          <p className="text-sm text-amber-100/90 whitespace-pre-wrap">{i.remember}</p>
+                        </div>
+                      </div>
                     )}
                     {others.length > 0 && (
                       <p className="text-xs text-slate-500 mt-1">
