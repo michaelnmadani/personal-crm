@@ -136,7 +136,7 @@ export function CatchUp() {
       {/* Two columns on large screens: the running list on the left, the
           calendar filling the right. The calendar comes last in the DOM, so on
           mobile the single column puts it at the bottom of the scroll. */}
-      <div className="grid gap-4 items-start lg:grid-cols-[minmax(0,1fr)_minmax(22rem,38%)]">
+      <div className="grid gap-4 items-start lg:grid-cols-[minmax(0,1fr)_minmax(26rem,57%)]">
         <div className="space-y-4">
         <Section title={due.length > 0 ? `Needs attention (${due.length})` : 'Needs attention'} icon="bell">
           {due.length === 0 ? empty : <div className="divide-y divide-slate-800">{due.map((r) => <ReminderItem key={r.id} reminder={r} />)}</div>}

@@ -105,31 +105,39 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
           const list = dayItems(d)
           const outside = !isSameMonth(d, month)
           const isPicked = picked && isSameDay(d, picked)
+          const today = isToday(d)
           return (
             <button
               key={d.toISOString()}
               onClick={() => setPicked(isPicked ? null : d)}
-              className={`min-h-16 rounded-lg border p-1 text-left align-top transition-colors ${
-                isPicked ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800 hover:border-slate-600'
+              className={`min-h-16 lg:min-h-32 rounded-lg border p-1 text-left align-top overflow-hidden transition-colors ${
+                today
+                  ? 'border-indigo-500 bg-indigo-500/30'
+                  : isPicked
+                    ? 'border-indigo-500 bg-indigo-500/10'
+                    : 'border-slate-800 hover:border-slate-600'
               } ${outside ? 'opacity-40' : ''}`}
             >
               <span
                 className={`inline-grid place-items-center w-5 h-5 rounded-full text-[11px] ${
-                  isToday(d) ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400'
+                  today ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400'
                 }`}
               >
                 {format(d, 'd')}
               </span>
-              <span className="mt-0.5 flex flex-wrap gap-0.5">
+              {/* Details wrap onto as many lines as they need rather than being
+                  truncated — there's vertical room for it on desktop. */}
+              <span className="mt-0.5 block space-y-0.5">
                 {list.slice(0, 4).map((it) => (
-                  <span key={it.id} className={`w-1.5 h-1.5 rounded-full ${STYLE[it.kind].dot}`} title={it.label} />
+                  <span
+                    key={it.id}
+                    className={`block rounded px-1 py-0.5 text-[10px] leading-tight break-words ${STYLE[it.kind].chip}`}
+                  >
+                    {it.label}
+                  </span>
                 ))}
+                {list.length > 4 && <span className="block text-[10px] text-slate-500">+{list.length - 4} more</span>}
               </span>
-              {list.length > 0 && (
-                <span className="block text-[10px] text-slate-500 truncate leading-tight">
-                  {list.length === 1 ? list[0].label : `${list.length} items`}
-                </span>
-              )}
             </button>
           )
         })}
