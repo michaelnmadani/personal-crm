@@ -196,7 +196,8 @@ export const useDoneReminders = () =>
           .select('*, contacts(id, first_name, last_name)')
           .eq('status', 'done')
           .order('completed_at', { ascending: false })
-          .limit(15),
+          // Deep enough to fill the archive, not just the recent handful.
+          .limit(500),
       ),
   })
 
