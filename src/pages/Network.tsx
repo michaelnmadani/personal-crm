@@ -1,19 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import cytoscape from 'cytoscape'
-import type { GroupType } from '../lib/types'
+import type { ContactOverview, GroupType } from '../lib/types'
 import {
+  api,
   useAllGroupMembers,
   useAllWorkHistory,
   useContacts,
   useGroups,
+  useMut,
   usePhotoUrls,
   useRelationships,
 } from '../lib/hooks'
 import { fullName } from '../lib/utils'
 import { Icon } from '../components/Icon'
 import { Avatar } from '../components/Avatar'
-import { btnGhost, card, chip, input } from '../components/ui'
+import { Modal } from '../components/Modal'
+import { btnGhost, btnPrimary, card, chip, input } from '../components/ui'
 
 const GROUP_COLORS: Record<GroupType, string> = {
   company: '#6366f1',
@@ -37,6 +40,7 @@ const SLOT = 132
 const RING_0 = 165
 const RING_STEP = 104
 const CLUSTER_GAP = 90
+const EDGE_TYPES = ['knows', 'friend', 'family', 'colleague', 'introduced me', 'client', 'mentor']
 
 type Pos = { x: number; y: number }
 
@@ -290,6 +294,79 @@ function computePositions(els: cytoscape.ElementDefinition[]): Record<string, Po
 
 type Selected = { kind: 'contact'; id: string } | { kind: 'group'; id: string } | { kind: 'company'; key: string } | null
 
+/** Confirm step after dragging one person onto another on the chart. */
+function ConnectModal({
+  from,
+  to,
+  pending,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  from?: ContactOverview
+  to?: ContactOverview
+  pending: boolean
+  error: string | null
+  onCancel: () => void
+  onConfirm: (relation: string, strength: number) => void
+}) {
+  const [relation, setRelation] = useState('knows')
+  const [strength, setStrength] = useState('3')
+  if (!from || !to) return null
+
+  return (
+    <Modal title="Connect these two?" onClose={onCancel}>
+      <div className="space-y-4">
+        <div className="flex items-center justify-center gap-3">
+          <div className="text-center">
+            <Avatar contact={from} size="lg" />
+            <p className="text-sm text-slate-200 mt-1">{fullName(from)}</p>
+          </div>
+          <Icon name="link" className="w-5 h-5 text-slate-500 shrink-0" />
+          <div className="text-center">
+            <Avatar contact={to} size="lg" />
+            <p className="text-sm text-slate-200 mt-1">{fullName(to)}</p>
+          </div>
+        </div>
+        <p className="text-xs text-slate-500 text-center">
+          The connection is mutual — it appears on both contact cards, and once on the chart.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs text-slate-400">
+            Relationship
+            <select className={input} value={relation} onChange={(e) => setRelation(e.target.value)}>
+              {EDGE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-slate-400">
+            Strength
+            <select className={input} value={strength} onChange={(e) => setStrength(e.target.value)}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>
+                  {'●'.repeat(n)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {error && <p className="text-sm text-red-400">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button className={btnGhost} onClick={onCancel} disabled={pending}>
+            Cancel
+          </button>
+          <button className={btnPrimary} onClick={() => onConfirm(relation, Number(strength))} disabled={pending}>
+            {pending ? 'Connecting…' : 'Connect'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 /** Normalize a company name so "Acme Corp." and "acme corp" match. */
 const normCompany = (s: string) =>
   s
@@ -316,6 +393,9 @@ export function Network() {
   const [groupFilter, setGroupFilter] = useState(params.get('group') ?? '')
   const [focusPerson, setFocusPerson] = useState<string | null>(params.get('focus'))
   const [focusCompany, setFocusCompany] = useState<string | null>(null)
+  // Drag one person onto another to propose a connection.
+  const [pendingLink, setPendingLink] = useState<{ from: string; to: string } | null>(null)
+  const addLink = useMut(api.addRelationship)
 
   const byId = useMemo(() => new Map((contacts ?? []).map((c) => [c.id, c])), [contacts])
 
@@ -572,6 +652,22 @@ export function Network() {
         { selector: 'edge[hub]', style: { width: 2, 'line-color': '#0ea5e9', opacity: 0.5 } },
         { selector: 'edge[membership]', style: { width: 1, 'line-style': 'dashed', 'line-color': '#94a3b8', opacity: 0.5 } },
         { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#f59e0b' } },
+        // The person you've focused is drawn at double size so they stand out
+        // as the centre of the view.
+        {
+          selector: 'node.focused',
+          style: {
+            width: 60,
+            height: 60,
+            'font-size': 12,
+            'font-weight': 'bold',
+            'border-width': 4,
+            'border-color': '#f59e0b',
+            'z-index': 20,
+          },
+        },
+        // Highlighted while another person is dragged over it.
+        { selector: 'node.drop-target', style: { 'border-width': 5, 'border-color': '#22c55e', 'z-index': 30 } },
         // Zoomed far out, 200+ names become an illegible smear; drop them and
         // keep only the hub labels until the user zooms in.
         { selector: 'node.nolabel', style: { label: '' } },
@@ -602,6 +698,42 @@ export function Network() {
     }
     syncLabels()
     cy.on('zoom', syncLabels)
+
+    if (focusPerson) cy.getElementById(focusPerson).addClass('focused')
+
+    // --- drag one person onto another to propose a connection ---------------
+    const isPerson = (id: string) => !id.startsWith('co-') && !id.startsWith('g-')
+    const HIT = 34 // centres this close means "dropped on top of"
+    const targetUnder = (node: cytoscape.NodeSingular) => {
+      const p = node.position()
+      const near: { node: cytoscape.NodeSingular; d: number }[] = []
+      cy.nodes().forEach((m) => {
+        if (m.id() === node.id() || !isPerson(m.id())) return
+        const q = m.position()
+        const d = Math.hypot(p.x - q.x, p.y - q.y)
+        if (d < HIT) near.push({ node: m, d })
+      })
+      near.sort((a, b) => a.d - b.d)
+      return near[0]?.node ?? null
+    }
+
+    cy.on('drag', 'node', (evt) => {
+      const node = evt.target as cytoscape.NodeSingular
+      cy.nodes('.drop-target').removeClass('drop-target')
+      if (!isPerson(node.id())) return
+      targetUnder(node)?.addClass('drop-target')
+    })
+
+    cy.on('dragfree', 'node', (evt) => {
+      const node = evt.target as cytoscape.NodeSingular
+      cy.nodes('.drop-target').removeClass('drop-target')
+      const hit = isPerson(node.id()) ? targetUnder(node) : null
+      // Always snap back — the layout is deterministic, dragging is only a
+      // gesture for linking, not a way to rearrange the chart.
+      const home = positions[node.id()]
+      if (home) node.position(home)
+      if (hit) setPendingLink({ from: node.id(), to: hit.id() })
+    })
 
     cy.on('tap', 'node', (evt) => {
       const id: string = evt.target.id()
@@ -804,10 +936,30 @@ export function Network() {
         )}
       </div>
 
+      {pendingLink && (
+        <ConnectModal
+          from={byId.get(pendingLink.from)}
+          to={byId.get(pendingLink.to)}
+          pending={addLink.isPending}
+          error={addLink.isError ? (addLink.error as Error).message : null}
+          onCancel={() => setPendingLink(null)}
+          onConfirm={async (relation, strength) => {
+            await addLink.mutateAsync({
+              from_contact: pendingLink.from,
+              to_contact: pendingLink.to,
+              relation,
+              strength,
+            })
+            setPendingLink(null)
+          }}
+        />
+      )}
+
       <p className="text-xs text-slate-600">
         Search a name to see just their network, or click a <span className="text-sky-500">company</span> hub to explore
         everyone there. Drag to pan · scroll to zoom. Blue hubs group people by shared employer; dashed lines are group
-        memberships; solid lines are direct connections you've added (thicker = stronger).
+        memberships; solid lines are direct connections you've added (thicker = stronger). Drag one person onto
+        another to connect them.
       </p>
     </div>
   )
