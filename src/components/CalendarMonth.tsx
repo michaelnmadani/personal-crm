@@ -51,6 +51,7 @@ const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date) => CalItem[] }) {
   const [month, setMonth] = useState(() => startOfMonth(new Date()))
   const [picked, setPicked] = useState<Date | null>(null)
+  const [hover, setHover] = useState<{ item: CalItem; top: number; left: number } | null>(null)
 
   const gridStart = startOfWeek(startOfMonth(month), { weekStartsOn: 1 })
   const gridEnd = endOfWeek(endOfMonth(month), { weekStartsOn: 1 })
@@ -67,6 +68,17 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
   }, [items])
 
   const dayItems = (d: Date) => byDay.get(format(d, 'yyyy-MM-dd')) ?? []
+
+  /** Position the hover card under the chip, clamped inside the viewport.
+   *  Fixed positioning keeps it clear of each cell's overflow-hidden. */
+  const showTip = (item: CalItem, el: HTMLElement) => {
+    const r = el.getBoundingClientRect()
+    setHover({
+      item,
+      top: Math.min(r.bottom + 6, window.innerHeight - 130),
+      left: Math.max(8, Math.min(r.left, window.innerWidth - 268)),
+    })
+  }
   const pickedItems = picked ? dayItems(picked) : []
 
   return (
@@ -136,6 +148,8 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
                 {list.slice(0, 4).map((it) => (
                   <span
                     key={it.id}
+                    onMouseEnter={(e) => showTip(it, e.currentTarget)}
+                    onMouseLeave={() => setHover(null)}
                     className={`block rounded px-1 py-0.5 text-[0.625rem] leading-tight break-words ${STYLE[it.kind].chip}`}
                   >
                     {it.initials && <span className="font-bold">{it.initials} </span>}
@@ -157,6 +171,27 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
           </span>
         ))}
       </div>
+
+      {hover && (
+        <div
+          className={`${card} fixed z-50 w-64 p-3 shadow-xl pointer-events-none`}
+          style={{ top: hover.top, left: hover.left }}
+          role="tooltip"
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <Icon name={STYLE[hover.item.kind].icon} className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-[0.625rem] font-semibold uppercase tracking-wide text-slate-400">
+              {STYLE[hover.item.kind].name}
+            </span>
+            {hover.item.kind !== 'birthday' && (
+              <span className="ml-auto text-[0.625rem] text-slate-400">{format(hover.item.date, 'h:mm a')}</span>
+            )}
+          </div>
+          <p className="text-sm font-medium text-slate-100 break-words">{hover.item.label}</p>
+          {hover.item.detail && <p className="text-xs text-slate-400 break-words mt-0.5">{hover.item.detail}</p>}
+          <p className="text-[0.625rem] text-slate-400 mt-1.5">{format(hover.item.date, 'EEEE, MMMM d')}</p>
+        </div>
+      )}
 
       {picked && (
         <div className="mt-3 border-t border-slate-800 pt-3">
