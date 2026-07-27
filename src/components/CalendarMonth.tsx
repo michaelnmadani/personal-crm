@@ -24,6 +24,8 @@ export type CalItem = {
   date: Date
   contactId?: string
   detail?: string
+  /** Initials of the person this is about, shown before the label in the grid. */
+  initials?: string
 }
 
 const STYLE: Record<CalKind, { dot: string; chip: string; icon: string; name: string }> = {
@@ -110,7 +112,7 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
             <button
               key={d.toISOString()}
               onClick={() => setPicked(isPicked ? null : d)}
-              className={`min-h-16 lg:min-h-32 rounded-lg border p-1 text-left align-top overflow-hidden transition-colors ${
+              className={`min-h-16 lg:min-h-32 flex flex-col items-stretch rounded-lg border p-1 text-left overflow-hidden transition-colors ${
                 today
                   ? 'border-indigo-500 bg-indigo-500/30'
                   : isPicked
@@ -118,11 +120,7 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
                     : 'border-slate-800 hover:border-slate-600'
               } ${outside ? 'opacity-40' : ''}`}
             >
-              <span
-                className={`inline-grid place-items-center w-5 h-5 rounded-full text-[11px] ${
-                  today ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400'
-                }`}
-              >
+              <span className={`block text-xs font-bold leading-none ${today ? 'text-indigo-100' : 'text-slate-300'}`}>
                 {format(d, 'd')}
               </span>
               {/* Details wrap onto as many lines as they need rather than being
@@ -133,6 +131,7 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
                     key={it.id}
                     className={`block rounded px-1 py-0.5 text-[10px] leading-tight break-words ${STYLE[it.kind].chip}`}
                   >
+                    {it.initials && <span className="font-bold">{it.initials} </span>}
                     {it.label}
                   </span>
                 ))}

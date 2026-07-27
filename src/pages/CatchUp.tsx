@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import type { ContactOverview } from '../lib/types'
 import { useAllFamily, useCalendarInteractions, useContacts, useInteractions, useOpenReminders } from '../lib/hooks'
-import { ago, daysUntil, effectiveDue, fullName, isDueNow, kitDueInDays, nextOccurrence } from '../lib/utils'
+import { ago, daysUntil, effectiveDue, fullName, initials, isDueNow, kitDueInDays, nextOccurrence } from '../lib/utils'
 import { Avatar } from '../components/Avatar'
 import { Icon, KIND_ICON } from '../components/Icon'
 import { ReminderItem } from '../components/ReminderItem'
@@ -104,6 +104,7 @@ export function CatchUp() {
             label: r.title,
             date: d,
             contactId: r.contacts?.id,
+            initials: r.contacts ? initials(r.contacts).toUpperCase() : undefined,
             detail: r.contacts ? fullName(r.contacts) : undefined,
           })
       }
@@ -111,14 +112,15 @@ export function CatchUp() {
       for (const i of calendarEvents ?? []) {
         const d = new Date(i.happened_at)
         if (!inRange(d)) continue
-        const who = (i.participants ?? []).map((p) => p.contacts && fullName(p.contacts)).filter(Boolean)
+        const people = (i.participants ?? []).map((p) => p.contacts).filter((c) => !!c)
         out.push({
           id: `e-${i.id}`,
           kind: 'event',
           label: i.title || i.kind,
           date: d,
-          contactId: i.participants?.[0]?.contacts?.id ?? undefined,
-          detail: who.join(', ') || undefined,
+          contactId: people[0]?.id,
+          initials: people[0] ? initials(people[0]).toUpperCase() : undefined,
+          detail: people.map((c) => fullName(c!)).join(', ') || undefined,
         })
       }
       return out
