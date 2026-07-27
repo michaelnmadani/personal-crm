@@ -88,7 +88,9 @@ export function Layout() {
         </NavLink>
       )}
 
-      <main className="max-w-4xl mx-auto px-4 py-6 pb-24 md:pb-10">
+      {/* Full width beside the sidebar — the content sizes itself, so wide
+          screens get more room rather than a narrow centred column. */}
+      <main className="w-full px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-10">
         <Outlet />
       </main>
 

@@ -13,9 +13,9 @@ type TileSize = 'small' | 'medium' | 'large'
 
 const TILE_SIZES: TileSize[] = ['small', 'medium', 'large']
 const TILE: Record<TileSize, { grid: string; avatar: 'md' | 'lg' | 'xl'; pad: string; name: string }> = {
-  small: { grid: 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6', avatar: 'md', pad: 'p-3', name: 'text-sm' },
-  medium: { grid: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4', avatar: 'lg', pad: 'p-4', name: 'text-base' },
-  large: { grid: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3', avatar: 'xl', pad: 'p-5', name: 'text-lg' },
+  small: { grid: 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10', avatar: 'md', pad: 'p-3', name: 'text-sm' },
+  medium: { grid: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6', avatar: 'lg', pad: 'p-4', name: 'text-base' },
+  large: { grid: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4', avatar: 'xl', pad: 'p-5', name: 'text-lg' },
 }
 
 export function Contacts() {
