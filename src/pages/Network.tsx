@@ -71,6 +71,71 @@ function hubLabel(name: string, fontPx: number, maxChars = 18) {
   }
 }
 
+/** Do segments ab and cd properly cross? Shared endpoints don't count. */
+function segmentsCross(a: Pos, b: Pos, c: Pos, d: Pos) {
+  const side = (p: Pos, q: Pos, r: Pos) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x))
+  const d1 = side(a, b, c)
+  const d2 = side(a, b, d)
+  const d3 = side(c, d, a)
+  const d4 = side(c, d, b)
+  return d1 !== 0 && d2 !== 0 && d3 !== 0 && d4 !== 0 && d1 !== d2 && d3 !== d4
+}
+
+export function countCrossings(edges: [string, string][], pos: Record<string, Pos>) {
+  let n = 0
+  for (let i = 0; i < edges.length; i++)
+    for (let j = i + 1; j < edges.length; j++) {
+      const [a, b] = edges[i]
+      const [c, d] = edges[j]
+      if (a === c || a === d || b === c || b === d) continue
+      if (pos[a] && pos[b] && pos[c] && pos[d] && segmentsCross(pos[a], pos[b], pos[c], pos[d])) n++
+    }
+  return n
+}
+
+/**
+ * Swap nodes between their allotted slots while that reduces the number of
+ * crossing connection lines. Slots are fixed, so spacing (and therefore label
+ * legibility) is untouched — only which person sits where changes. Zero
+ * crossings isn't always reachable (a non-planar graph cannot be drawn without
+ * them), so this is best-effort local search with a work cap.
+ */
+function reduceCrossings(
+  positions: Record<string, Pos>,
+  edges: [string, string][],
+  groups: string[][],
+  maxPasses = 8,
+) {
+  if (edges.length < 2) return
+  const touched = new Set(edges.flat())
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let improved = false
+    for (const group of groups) {
+      // Only bother moving people who actually have connections drawn.
+      const movable = group.filter((id) => touched.has(id))
+      if (movable.length < 2) continue
+      for (let i = 0; i < movable.length; i++) {
+        for (let j = i + 1; j < movable.length; j++) {
+          const a = movable[i]
+          const b = movable[j]
+          const before = countCrossings(edges, positions)
+          if (before === 0) return
+          const tmp = positions[a]
+          positions[a] = positions[b]
+          positions[b] = tmp
+          if (countCrossings(edges, positions) < before) improved = true
+          else {
+            const back = positions[a]
+            positions[a] = positions[b]
+            positions[b] = back
+          }
+        }
+      }
+    }
+    if (!improved) return
+  }
+}
+
 /**
  * Deterministic hub-and-spoke layout: each company/group hub gets its members
  * on concentric rings sized so every node owns a SLOT-wide arc, then clusters
@@ -199,7 +264,9 @@ function computePositions(els: cytoscape.ElementDefinition[]): Record<string, Po
   }
 
   // Anyone with no hub (no shared employer) goes in a tidy grid underneath.
+  const slotGroups: string[][] = clusters.map((c) => c.members)
   const loose = orderMembers(peopleIds.filter((id) => !claimed.has(id)))
+  slotGroups.push(loose)
   if (loose.length > 0) {
     const perRow = Math.max(1, Math.floor(targetW / SLOT))
     const top = y + rowH + CLUSTER_GAP
@@ -207,6 +274,17 @@ function computePositions(els: cytoscape.ElementDefinition[]): Record<string, Po
       positions[id] = { x: (i % perRow) * SLOT, y: top + Math.floor(i / perRow) * (RING_STEP * 0.8) }
     })
   }
+
+  // Finally, untangle the connection lines by swapping people between slots.
+  // Capped so a huge graph can't make this expensive.
+  const relEdges: [string, string][] = []
+  for (const e of els) {
+    const d = data(e)
+    if (!d.source || !d.target || d.hub || d.membership) continue
+    relEdges.push([d.source, d.target])
+  }
+  if (relEdges.length >= 2 && relEdges.length <= 120) reduceCrossings(positions, relEdges, slotGroups)
+
   return positions
 }
 
@@ -419,7 +497,12 @@ export function Network() {
             // Keep labels inside their SLOT so neighbours can't collide.
             'text-max-width': '112px',
             'text-wrap': 'ellipsis',
-            'text-background-opacity': 0,
+            // Backing so a line passing beneath a name doesn't render it (or
+            // itself) unreadable.
+            'text-background-color': '#0f172a',
+            'text-background-opacity': 0.72,
+            'text-background-padding': '2px',
+            'text-background-shape': 'roundrectangle',
             width: 30,
             height: 30,
             'background-color': '#6366f1',
@@ -478,8 +561,12 @@ export function Network() {
           style: {
             width: 'mapData(w, 1, 5, 1.5, 4)',
             'line-color': '#64748b',
-            'curve-style': 'bezier',
-            opacity: 0.7,
+            // Slight curvature so lines that would run along the same path stay
+            // individually visible instead of merging into one stroke.
+            'curve-style': 'unbundled-bezier',
+            'control-point-distances': '22',
+            'control-point-weights': '0.5',
+            opacity: 0.75,
           },
         },
         { selector: 'edge[hub]', style: { width: 2, 'line-color': '#0ea5e9', opacity: 0.5 } },
