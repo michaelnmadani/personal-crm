@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { api } from '../lib/hooks'
 import { download } from '../lib/utils'
 import { applyTheme, currentTheme, THEME_SWATCH, THEMES, type Theme } from '../lib/theme'
+import { applyTextSize, currentTextSize, TEXT_SIZE_LABEL, TEXT_SIZES, type TextSize } from '../lib/textSize'
 import { Icon } from '../components/Icon'
 import { btnGhost, btnPrimary, card } from '../components/ui'
 
@@ -23,6 +24,7 @@ export function Settings() {
   const [userEmail, setUserEmail] = useState('')
   const [theme, setTheme] = useState<Theme>(currentTheme)
   const [refreshing, setRefreshing] = useState(false)
+  const [textSize, setTextSize] = useState<TextSize>(currentTextSize)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? ''))
@@ -31,6 +33,11 @@ export function Settings() {
   const pickTheme = (t: Theme) => {
     setTheme(t)
     applyTheme(t)
+  }
+
+  const pickTextSize = (t: TextSize) => {
+    setTextSize(t)
+    applyTextSize(t)
   }
 
   /**
@@ -89,7 +96,32 @@ export function Settings() {
                   style={{ background: `linear-gradient(135deg, ${bg} 50%, ${accent} 50%)` }}
                 />
                 {THEME_LABELS[t]}
-                {t === 'dark' && <span className="text-[10px] text-slate-500">default</span>}
+                {t === 'dark' && <span className="text-[0.625rem] text-slate-500">default</span>}
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
+      <section className={`${card} p-4 space-y-3`}>
+        <h2 className="text-sm font-semibold text-slate-300">Text size</h2>
+        <p className="text-sm text-slate-400">Scales the whole app, so spacing stays in proportion. Applies instantly.</p>
+        <div className="grid grid-cols-3 gap-2 max-w-md">
+          {TEXT_SIZES.map((t) => {
+            const active = textSize === t
+            return (
+              <button
+                key={t}
+                onClick={() => pickTextSize(t)}
+                aria-pressed={active}
+                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 ${
+                  active ? 'border-indigo-500 bg-indigo-600/15 text-slate-100' : 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                {/* Preview the actual step so the choice is self-evident. */}
+                <span className={t === 'small' ? 'text-sm' : t === 'medium' ? 'text-base' : 'text-lg'}>A</span>
+                <span className="text-sm">{TEXT_SIZE_LABEL[t]}</span>
+                {t === 'small' && <span className="text-[0.625rem] text-slate-500">default</span>}
               </button>
             )
           })}

@@ -17,7 +17,7 @@ const TABS = [
 function Badge({ count }: { count: number }) {
   if (count === 0) return null
   return (
-    <span className="absolute -top-1 -right-2 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold grid place-items-center">
+    <span className="absolute -top-1 -right-2 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[0.625rem] font-bold grid place-items-center">
       {count > 99 ? '99+' : count}
     </span>
   )
@@ -102,7 +102,7 @@ export function Layout() {
             to={t.to}
             end={t.to === '/'}
             className={({ isActive }) =>
-              `flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium ${
+              `flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[0.6875rem] font-medium ${
                 isActive ? 'text-indigo-400' : 'text-slate-500'
               }`
             }

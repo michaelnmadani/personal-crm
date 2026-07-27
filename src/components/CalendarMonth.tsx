@@ -103,7 +103,7 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
         </div>
       </header>
 
-      <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-medium text-slate-400 mb-1">
+      <div className="grid grid-cols-7 gap-1 text-center text-[0.6875rem] font-medium text-slate-400 mb-1">
         {DOW.map((d) => (
           <div key={d}>{d}</div>
         ))}
@@ -136,20 +136,20 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
                 {list.slice(0, 4).map((it) => (
                   <span
                     key={it.id}
-                    className={`block rounded px-1 py-0.5 text-[10px] leading-tight break-words ${STYLE[it.kind].chip}`}
+                    className={`block rounded px-1 py-0.5 text-[0.625rem] leading-tight break-words ${STYLE[it.kind].chip}`}
                   >
                     {it.initials && <span className="font-bold">{it.initials} </span>}
                     {it.label}
                   </span>
                 ))}
-                {list.length > 4 && <span className="block text-[10px] text-slate-400">+{list.length - 4} more</span>}
+                {list.length > 4 && <span className="block text-[0.625rem] text-slate-400">+{list.length - 4} more</span>}
               </span>
             </button>
           )
         })}
       </div>
 
-      <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-slate-400">
+      <div className="flex flex-wrap gap-3 mt-3 text-[0.6875rem] text-slate-400">
         {(Object.keys(STYLE) as CalKind[]).map((k) => (
           <span key={k} className="flex items-center gap-1.5">
             <span className={`w-1.5 h-1.5 rounded-full ${STYLE[k].dot}`} />
@@ -167,7 +167,7 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
             <ul className="space-y-1.5">
               {pickedItems.map((it) => (
                 <li key={it.id} className="flex items-center gap-2 text-sm">
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] ${STYLE[it.kind].chip}`}>{STYLE[it.kind].name}</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[0.625rem] ${STYLE[it.kind].chip}`}>{STYLE[it.kind].name}</span>
                   {it.contactId ? (
                     <Link to={`/contacts/${it.contactId}`} className="text-slate-100 hover:text-indigo-300">
                       {it.label}

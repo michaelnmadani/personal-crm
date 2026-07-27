@@ -4,6 +4,18 @@ html {
   color-scheme: dark;
 }
 
+/*
+ * Text size. Every size in the app is in rem, so scaling the root scales text,
+ * spacing and controls together — nothing overflows or falls out of proportion.
+ * "Small" is the browser default (16px) and needs no rule.
+ */
+[data-text='medium'] {
+  font-size: 112.5%;
+}
+[data-text='large'] {
+  font-size: 125%;
+}
+
 body {
   @apply bg-slate-950 text-slate-100 antialiased;
 }

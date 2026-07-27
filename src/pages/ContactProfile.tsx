@@ -169,7 +169,7 @@ function PhotoAvatar({ contact }: { contact: ContactOverview }) {
           <Icon name="x" className="w-3 h-3" />
         </button>
       )}
-      {upload.isPending && <p className="absolute -bottom-5 left-0 right-0 text-center text-[10px] text-slate-500">uploading…</p>}
+      {upload.isPending && <p className="absolute -bottom-5 left-0 right-0 text-center text-[0.625rem] text-slate-500">uploading…</p>}
     </div>
   )
 }
@@ -502,7 +502,7 @@ function WorkHistoryEditor({ contactId }: { contactId: string }) {
               {w.title ? `${w.title} · ` : ''}
               <span className="font-medium">{w.company}</span>
               {span(w) && <span className="text-slate-500"> — {span(w)}</span>}
-              {w.is_current && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-emerald-400">current</span>}
+              {w.is_current && <span className="ml-1.5 text-[0.625rem] uppercase tracking-wide text-emerald-400">current</span>}
               {w.notes && <span className="block text-xs text-slate-500">{w.notes}</span>}
             </span>
             <button
@@ -904,7 +904,7 @@ export function ContactProfile() {
                       <div className="mt-1.5 flex gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5">
                         <Icon name="star" className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" filled />
                         <div className="min-w-0">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Remember</p>
+                          <p className="text-[0.625rem] font-semibold uppercase tracking-wide text-amber-600">Remember</p>
                           {/* slate-100 is the theme's primary text token — dark on
                               light themes, light on dark ones — so this stays readable. */}
                           <p className="text-sm text-slate-100 whitespace-pre-wrap">{i.remember}</p>

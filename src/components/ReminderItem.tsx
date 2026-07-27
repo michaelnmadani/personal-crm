@@ -41,14 +41,14 @@ export function ReminderItem({ reminder, showContact = true }: { reminder: Remin
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
         <button
           onClick={() => snooze.mutate({ id: reminder.id, until: addDays(new Date(), 1) })}
-          className="px-1.5 py-0.5 text-[11px] rounded bg-slate-800 text-slate-400 hover:text-slate-200"
+          className="px-1.5 py-0.5 text-[0.6875rem] rounded bg-slate-800 text-slate-400 hover:text-slate-200"
           title="Snooze 1 day"
         >
           +1d
         </button>
         <button
           onClick={() => snooze.mutate({ id: reminder.id, until: addDays(new Date(), 7) })}
-          className="px-1.5 py-0.5 text-[11px] rounded bg-slate-800 text-slate-400 hover:text-slate-200"
+          className="px-1.5 py-0.5 text-[0.6875rem] rounded bg-slate-800 text-slate-400 hover:text-slate-200"
           title="Snooze 1 week"
         >
           +1w

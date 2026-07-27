@@ -221,7 +221,7 @@ export function Contacts() {
                   </div>
                 )}
                 {tileSize !== 'small' && (
-                  <p className="text-[11px] text-slate-600 mt-auto">
+                  <p className="text-[0.6875rem] text-slate-600 mt-auto">
                     {c.last_contacted ? ago(c.last_contacted) : 'no contact logged'}
                   </p>
                 )}
@@ -261,7 +261,7 @@ export function Contacts() {
                       </span>
                     ))}
                   </div>
-                  <p className="text-[11px] text-slate-600">{c.last_contacted ? ago(c.last_contacted) : 'no contact logged'}</p>
+                  <p className="text-[0.6875rem] text-slate-600">{c.last_contacted ? ago(c.last_contacted) : 'no contact logged'}</p>
                 </div>
               </Link>
             </li>
