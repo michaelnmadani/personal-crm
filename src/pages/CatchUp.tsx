@@ -133,112 +133,121 @@ export function CatchUp() {
         <p className="text-sm text-slate-500">{format(new Date(), 'EEEE, MMMM d')}</p>
       </header>
 
-      <CalendarMonth itemsFor={itemsFor} />
-
-      <Section title={due.length > 0 ? `Needs attention (${due.length})` : 'Needs attention'} icon="bell">
-        {due.length === 0 ? empty : <div className="divide-y divide-slate-800">{due.map((r) => <ReminderItem key={r.id} reminder={r} />)}</div>}
-      </Section>
-
-      {upcoming.length > 0 && (
-        <Section title="Coming up this week" icon="clock">
-          <div className="divide-y divide-slate-800">
-            {upcoming.map((r) => (
-              <ReminderItem key={r.id} reminder={r} />
-            ))}
-          </div>
+      {/* Two columns on large screens: the running list on the left, the
+          calendar filling the right. The calendar comes last in the DOM, so on
+          mobile the single column puts it at the bottom of the scroll. */}
+      <div className="grid gap-4 items-start lg:grid-cols-[minmax(0,1fr)_minmax(22rem,38%)]">
+        <div className="space-y-4">
+        <Section title={due.length > 0 ? `Needs attention (${due.length})` : 'Needs attention'} icon="bell">
+          {due.length === 0 ? empty : <div className="divide-y divide-slate-800">{due.map((r) => <ReminderItem key={r.id} reminder={r} />)}</div>}
         </Section>
-      )}
 
-      {birthdays.length > 0 && (
-        <Section title="Birthdays" icon="gift">
-          <ul className="space-y-1.5">
-            {birthdays.map((b) => (
-              <li key={b.key} className="flex items-center justify-between text-sm">
-                <span>
-                  <Link to={`/contacts/${b.contactId}`} className="text-slate-100 hover:text-indigo-300 font-medium">
-                    {b.name}
-                  </Link>{' '}
-                  <span className="text-slate-500">· {b.note}</span>
-                </span>
-                <span className={`${chip} ${b.inDays === 0 ? 'bg-pink-500/20 text-pink-300' : 'bg-slate-800 text-slate-400'}`}>
-                  {b.inDays === 0 ? 'today 🎂' : b.inDays === 1 ? 'tomorrow' : `in ${b.inDays} days`}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      <Section title="Keep in touch" icon="heart">
-        {overdueKit.length === 0 ? (
-          empty
-        ) : (
-          <ul className="space-y-2">
-            {overdueKit.map(({ c, days }) => (
-              <li key={c.id}>
-                <Link to={`/contacts/${c.id}`} className="flex items-center gap-3 group">
-                  <Avatar contact={c} size="sm" />
-                  <span className="text-sm font-medium text-slate-100 group-hover:text-indigo-300">{fullName(c)}</span>
-                  <span className="text-xs text-red-400 ml-auto">
-                    {c.last_contacted ? `last contact ${ago(c.last_contacted)}` : 'never contacted'}
-                    {days < 0 ? ` · ${-days}d overdue` : ' · due now'}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+        {upcoming.length > 0 && (
+          <Section title="Coming up this week" icon="clock">
+            <div className="divide-y divide-slate-800">
+              {upcoming.map((r) => (
+                <ReminderItem key={r.id} reminder={r} />
+              ))}
+            </div>
+          </Section>
         )}
-      </Section>
 
-      {dormant.length > 0 && (
-        <Section title="Worth reconnecting" icon="users">
-          <p className="text-xs text-slate-500 mb-2">
-            Dormant ties — research shows people you've lost touch with give the most valuable, novel help when you reconnect.
-          </p>
-          <ul className="space-y-2">
-            {dormant.map(({ c, last }) => (
-              <li key={c.id}>
-                <Link to={`/contacts/${c.id}`} className="flex items-center gap-3 group">
-                  <Avatar contact={c} size="sm" />
-                  <span className="text-sm font-medium text-slate-100 group-hover:text-indigo-300">{fullName(c)}</span>
-                  <span className="text-xs text-slate-500 ml-auto">
-                    quiet for {Math.floor((Date.now() - last) / (30 * 86_400_000))} months
+        {birthdays.length > 0 && (
+          <Section title="Birthdays" icon="gift">
+            <ul className="space-y-1.5">
+              {birthdays.map((b) => (
+                <li key={b.key} className="flex items-center justify-between text-sm">
+                  <span>
+                    <Link to={`/contacts/${b.contactId}`} className="text-slate-100 hover:text-indigo-300 font-medium">
+                      {b.name}
+                    </Link>{' '}
+                    <span className="text-slate-500">· {b.note}</span>
                   </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      <Section title="Recent notes" icon="note">
-        {(recent ?? []).length === 0 ? (
-          empty
-        ) : (
-          <ul className="space-y-3">
-            {(recent ?? []).map((i) => (
-              <li key={i.id} className="text-sm">
-                <div className="flex items-center gap-2 text-slate-400 text-xs mb-0.5">
-                  <Icon name={KIND_ICON[i.kind]} className="w-3.5 h-3.5" />
-                  <span>{ago(i.happened_at)}</span>
-                  <span className="text-slate-600">·</span>
-                  {(i.participants ?? []).map(
-                    (p, idx) =>
-                      p.contacts && (
-                        <Link key={p.contact_id} to={`/contacts/${p.contacts.id}`} className="text-indigo-400 hover:underline">
-                          {idx > 0 ? ', ' : ''}
-                          {fullName(p.contacts)}
-                        </Link>
-                      ),
-                  )}
-                </div>
-                {i.title && <p className="font-medium text-slate-200">{i.title}</p>}
-                {i.notes && <p className="text-slate-400 line-clamp-2 whitespace-pre-wrap">{i.notes}</p>}
-              </li>
-            ))}
-          </ul>
+                  <span className={`${chip} ${b.inDays === 0 ? 'bg-pink-500/20 text-pink-300' : 'bg-slate-800 text-slate-400'}`}>
+                    {b.inDays === 0 ? 'today 🎂' : b.inDays === 1 ? 'tomorrow' : `in ${b.inDays} days`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Section>
         )}
-      </Section>
+
+        <Section title="Keep in touch" icon="heart">
+          {overdueKit.length === 0 ? (
+            empty
+          ) : (
+            <ul className="space-y-2">
+              {overdueKit.map(({ c, days }) => (
+                <li key={c.id}>
+                  <Link to={`/contacts/${c.id}`} className="flex items-center gap-3 group">
+                    <Avatar contact={c} size="sm" />
+                    <span className="text-sm font-medium text-slate-100 group-hover:text-indigo-300">{fullName(c)}</span>
+                    <span className="text-xs text-red-400 ml-auto">
+                      {c.last_contacted ? `last contact ${ago(c.last_contacted)}` : 'never contacted'}
+                      {days < 0 ? ` · ${-days}d overdue` : ' · due now'}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+
+        {dormant.length > 0 && (
+          <Section title="Worth reconnecting" icon="users">
+            <p className="text-xs text-slate-500 mb-2">
+              Dormant ties — research shows people you've lost touch with give the most valuable, novel help when you reconnect.
+            </p>
+            <ul className="space-y-2">
+              {dormant.map(({ c, last }) => (
+                <li key={c.id}>
+                  <Link to={`/contacts/${c.id}`} className="flex items-center gap-3 group">
+                    <Avatar contact={c} size="sm" />
+                    <span className="text-sm font-medium text-slate-100 group-hover:text-indigo-300">{fullName(c)}</span>
+                    <span className="text-xs text-slate-500 ml-auto">
+                      quiet for {Math.floor((Date.now() - last) / (30 * 86_400_000))} months
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Section>
+        )}
+
+        <Section title="Recent notes" icon="note">
+          {(recent ?? []).length === 0 ? (
+            empty
+          ) : (
+            <ul className="space-y-3">
+              {(recent ?? []).map((i) => (
+                <li key={i.id} className="text-sm">
+                  <div className="flex items-center gap-2 text-slate-400 text-xs mb-0.5">
+                    <Icon name={KIND_ICON[i.kind]} className="w-3.5 h-3.5" />
+                    <span>{ago(i.happened_at)}</span>
+                    <span className="text-slate-600">·</span>
+                    {(i.participants ?? []).map(
+                      (p, idx) =>
+                        p.contacts && (
+                          <Link key={p.contact_id} to={`/contacts/${p.contacts.id}`} className="text-indigo-400 hover:underline">
+                            {idx > 0 ? ', ' : ''}
+                            {fullName(p.contacts)}
+                          </Link>
+                        ),
+                    )}
+                  </div>
+                  {i.title && <p className="font-medium text-slate-200">{i.title}</p>}
+                  {i.notes && <p className="text-slate-400 line-clamp-2 whitespace-pre-wrap">{i.notes}</p>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+        </div>
+
+        <div className="lg:sticky lg:top-6">
+          <CalendarMonth itemsFor={itemsFor} />
+        </div>
+      </div>
     </div>
   )
 }
