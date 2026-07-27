@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, useAllContactTags, useContacts, useMut, usePhotoUrls } from '../lib/hooks'
-import { ago, fullName, kitOverdue } from '../lib/utils'
+import { ago, fmtDateTime, fullName, kitOverdue } from '../lib/utils'
 import { Avatar } from '../components/Avatar'
 import { Icon } from '../components/Icon'
 import { btnPrimary, card, chip, input } from '../components/ui'
 
 type Filter = 'all' | 'business' | 'personal' | 'overdue' | 'favorites'
-type Sort = 'name' | 'recent' | 'added'
+type Sort = 'modified' | 'name' | 'recent' | 'added'
 type View = 'rows' | 'tiles'
 type TileSize = 'small' | 'medium' | 'large'
 
@@ -27,7 +27,7 @@ export function Contacts() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
-  const [sort, setSort] = useState<Sort>('name')
+  const [sort, setSort] = useState<Sort>('modified')
   const [view, setView] = useState<View>(() => (localStorage.getItem('contactsView') === 'tiles' ? 'tiles' : 'rows'))
   const [tileSize, setTileSize] = useState<TileSize>(() => {
     const s = localStorage.getItem('contactsTileSize')
@@ -74,14 +74,20 @@ export function Contacts() {
           .some((v) => v!.toLowerCase().includes(s)),
       )
     }
+    type Row = (typeof l)[number]
+    const byName = (a: Row, b: Row) => fullName(a).localeCompare(fullName(b))
     const cmp =
-      sort === 'recent'
-        ? (a: typeof l[number], b: typeof l[number]) =>
-            new Date(b.last_contacted ?? 0).getTime() - new Date(a.last_contacted ?? 0).getTime()
-        : sort === 'added'
-          ? (a: typeof l[number], b: typeof l[number]) =>
-              new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-          : (a: typeof l[number], b: typeof l[number]) => fullName(a).localeCompare(fullName(b))
+      sort === 'modified'
+        ? // Ties are common — a bulk import stamps everyone at once — so fall
+          // back to name rather than leaving the order arbitrary.
+          (a: Row, b: Row) =>
+            new Date(b.last_modified).getTime() - new Date(a.last_modified).getTime() || byName(a, b)
+        : sort === 'recent'
+          ? (a: Row, b: Row) =>
+              new Date(b.last_contacted ?? 0).getTime() - new Date(a.last_contacted ?? 0).getTime()
+          : sort === 'added'
+            ? (a: Row, b: Row) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            : byName
     // Favourites always float to the top, then the chosen sort within each group.
     return [...l].sort((a, b) => Number(b.favorite) - Number(a.favorite) || cmp(a, b))
   }, [contacts, filter, search, sort, tagsByContact])
@@ -125,6 +131,7 @@ export function Contacts() {
           </button>
         </form>
         <select className={`${input} w-auto`} value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+          <option value="modified">Recently modified</option>
           <option value="name">A–Z</option>
           <option value="recent">Recently contacted</option>
           <option value="added">Recently added</option>
@@ -220,8 +227,9 @@ export function Contacts() {
                   </div>
                 )}
                 {tileSize !== 'small' && (
-                  <p className="text-[0.6875rem] text-slate-600 mt-auto">
+                  <p className="text-[0.6875rem] text-slate-600 mt-auto" title={`Last modified ${fmtDateTime(c.last_modified)}`}>
                     {c.last_contacted ? ago(c.last_contacted) : 'no contact logged'}
+                    <span className="block">edited {ago(c.last_modified)}</span>
                   </p>
                 )}
               </Link>
@@ -261,6 +269,9 @@ export function Contacts() {
                     ))}
                   </div>
                   <p className="text-[0.6875rem] text-slate-600">{c.last_contacted ? ago(c.last_contacted) : 'no contact logged'}</p>
+                  <p className="text-[0.6875rem] text-slate-600" title={`Last modified ${fmtDateTime(c.last_modified)}`}>
+                    edited {ago(c.last_modified)}
+                  </p>
                 </div>
               </Link>
             </li>

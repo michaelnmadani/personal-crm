@@ -844,6 +844,7 @@ export function ContactProfile() {
 
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
           {contact.last_contacted ? <span>Last contact {ago(contact.last_contacted)}</span> : <span>No contact logged yet</span>}
+          <span title={fmtDateTime(contact.last_modified)}>Last modified {ago(contact.last_modified)}</span>
           {kitDays !== null && (
             <span className={kitDays <= 0 ? 'text-red-400 font-medium' : ''}>
               Keep in touch every {contact.keep_in_touch_days}d — {kitDays <= 0 ? `${-kitDays}d overdue` : `due in ${kitDays}d`}

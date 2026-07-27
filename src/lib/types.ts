@@ -30,7 +30,11 @@ export type Contact = {
   updated_at: string
 }
 
-export type ContactOverview = Contact & { last_contacted: string | null }
+export type ContactOverview = Contact & {
+  last_contacted: string | null
+  /** Latest change to the contact or anything hanging off it (notes, facts, groups…). */
+  last_modified: string
+}
 
 export type Relation = 'spouse' | 'partner' | 'child' | 'parent' | 'sibling' | 'pet' | 'other'
 
