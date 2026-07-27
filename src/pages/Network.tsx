@@ -12,6 +12,7 @@ import {
   usePhotoUrls,
   useRelationships,
 } from '../lib/hooks'
+import { clearNodePositions, loadNodePositions, saveNodePositions } from '../lib/networkPrefs'
 import { fullName } from '../lib/utils'
 import { Icon } from '../components/Icon'
 import { Avatar } from '../components/Avatar'
@@ -398,6 +399,11 @@ export function Network() {
   // Redraw when the theme changes so the canvas picks up the new palette — the
   // graph is drawn once to a canvas, so CSS alone can't restyle it.
   const [themeTick, setThemeTick] = useState(0)
+  // Nodes the user has dragged somewhere of their own choosing. Kept in a ref so
+  // moving a node doesn't re-render (and so rebuild) the graph mid-drag; the
+  // counter in state is only there to drive the "Reset layout" button.
+  const movedRef = useRef<Record<string, Pos>>(loadNodePositions())
+  const [movedCount, setMovedCount] = useState(() => Object.keys(movedRef.current).length)
   const addLink = useMut(api.addRelationship)
 
   useEffect(() => {
@@ -573,7 +579,9 @@ export function Network() {
     const nodeBoth = v('--graph-node-both', '#8b5cf6')
     const hubColor = v('--graph-hub', '#0ea5e9')
     const edgeColor = v('--graph-edge', '#64748b')
-    const positions = computePositions(elements)
+    // Computed layout first, then anything the user has dragged into place —
+    // a saved position is a deliberate override and outranks the calculation.
+    const positions = { ...computePositions(elements), ...movedRef.current }
 
     const cy = cytoscape({
       container: containerRef.current,
@@ -738,11 +746,21 @@ export function Network() {
       const node = evt.target as cytoscape.NodeSingular
       cy.nodes('.drop-target').removeClass('drop-target')
       const hit = isPerson(node.id()) ? targetUnder(node) : null
-      // Always snap back — the layout is deterministic, dragging is only a
-      // gesture for linking, not a way to rearrange the chart.
-      const home = positions[node.id()]
-      if (home) node.position(home)
-      if (hit) setPendingLink({ from: node.id(), to: hit.id() })
+      if (hit) {
+        // Landing on top of someone means "connect these two", not "park the
+        // node here" — snap back and ask about the link instead.
+        const home = positions[node.id()]
+        if (home) node.position(home)
+        setPendingLink({ from: node.id(), to: hit.id() })
+        return
+      }
+      // Dropped on open canvas: keep it where it was put, and remember it so the
+      // arrangement survives filtering, theme changes and reloads.
+      const p = node.position()
+      positions[node.id()] = { x: p.x, y: p.y }
+      movedRef.current = { ...movedRef.current, [node.id()]: { x: p.x, y: p.y } }
+      saveNodePositions(movedRef.current)
+      setMovedCount(Object.keys(movedRef.current).length)
     })
 
     cy.on('tap', 'node', (evt) => {
@@ -791,6 +809,24 @@ export function Network() {
     setSelected(null)
   }
 
+  /** Throw away every dragged position and put the calculated layout back. */
+  const resetLayout = () => {
+    movedRef.current = {}
+    clearNodePositions()
+    setMovedCount(0)
+    const cy = cyRef.current
+    if (!cy) return
+    const home = computePositions(elements)
+    cy.batch(() =>
+      cy.nodes().forEach((n) => {
+        const p = home[n.id()]
+        if (p) n.position(p)
+      }),
+    )
+    cy.fit(undefined, 50)
+    if (cy.zoom() < 0.55) cy.zoom(0.55)
+  }
+
   const selectedContact = selected?.kind === 'contact' ? byId.get(selected.id) : null
   const selectedGroup = selected?.kind === 'group' ? (groups ?? []).find((g) => g.id === selected.id) : null
   const selectedCompany = selected?.kind === 'company' ? companyIndex.get(selected.key) : null
@@ -806,9 +842,16 @@ export function Network() {
     <div className="space-y-3">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Network</h1>
-        <Link to="/groups" className={btnGhost}>
-          Manage groups
-        </Link>
+        <div className="flex items-center gap-2">
+          {movedCount > 0 && (
+            <button onClick={resetLayout} className={btnGhost} title="Put every node back where the layout puts it">
+              Reset layout
+            </button>
+          )}
+          <Link to="/groups" className={btnGhost}>
+            Manage groups
+          </Link>
+        </div>
       </header>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -968,8 +1011,9 @@ export function Network() {
       <p className="text-xs text-slate-600">
         Search a name to see just their network, or click a <span className="text-sky-500">company</span> hub to explore
         everyone there. Drag to pan · scroll to zoom. Blue hubs group people by shared employer; dashed lines are group
-        memberships; solid lines are direct connections you've added (thicker = stronger). Drag one person onto
-        another to connect them.
+        memberships; solid lines are direct connections you've added (thicker = stronger). Drag a node anywhere to
+        rearrange the chart — it stays put; drop one person on top of another to connect them. "Reset layout" puts
+        everything back.
       </p>
     </div>
   )
