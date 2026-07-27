@@ -30,6 +30,114 @@ const GROUP_COLORS: Record<GroupType, string> = {
 // user drill in by searching a person or clicking a company.
 const MAX_PEOPLE = 220
 
+// Layout geometry. SLOT is the horizontal room one node's label needs, so
+// spacing is driven by label width rather than circle width — that's what stops
+// names from colliding.
+const SLOT = 132
+const RING_0 = 165
+const RING_STEP = 104
+const CLUSTER_GAP = 90
+
+type Pos = { x: number; y: number }
+
+/**
+ * Deterministic hub-and-spoke layout: each company/group hub gets its members
+ * on concentric rings sized so every node owns a SLOT-wide arc, then clusters
+ * are packed into rows. A force layout (cose) pulls tightly-connected nodes
+ * into a blob where labels overlap badly; this trades organic look for
+ * guaranteed legibility, and being deterministic it doesn't reshuffle on every
+ * render.
+ */
+function computePositions(els: cytoscape.ElementDefinition[]): Record<string, Pos> {
+  type D = { id: string; source?: string; target?: string; company?: number; gtype?: string; hub?: number; membership?: number }
+  const data = (e: cytoscape.ElementDefinition) => e.data as unknown as D
+
+  const nodes = els.filter((e) => !data(e).source)
+  const hubIds = nodes.filter((e) => data(e).company || data(e).gtype).map((e) => data(e).id)
+  const peopleIds = nodes.filter((e) => !data(e).company && !data(e).gtype).map((e) => data(e).id)
+
+  // Attach each person to the first hub that claims them.
+  const membersOf = new Map<string, string[]>(hubIds.map((h) => [h, []]))
+  const claimed = new Set<string>()
+  for (const e of els) {
+    const d = data(e)
+    if (!d.source || !d.target) continue
+    if (!d.hub && !d.membership) continue
+    if (claimed.has(d.source) || !membersOf.has(d.target)) continue
+    membersOf.get(d.target)!.push(d.source)
+    claimed.add(d.source)
+  }
+
+  // Ring plan for n members: fill outward, each ring holding as many nodes as
+  // fit at SLOT spacing around its circumference.
+  const ringsFor = (n: number) => {
+    const rings: { r: number; count: number }[] = []
+    let left = n
+    let r = RING_0
+    while (left > 0) {
+      const cap = Math.max(6, Math.floor((2 * Math.PI * r) / SLOT))
+      const take = Math.min(cap, left)
+      rings.push({ r, count: take })
+      left -= take
+      r += RING_STEP
+    }
+    return rings
+  }
+
+  const clusters = hubIds
+    .map((id) => {
+      const members = membersOf.get(id) ?? []
+      const rings = ringsFor(members.length)
+      const radius = members.length === 0 ? RING_0 / 2 : rings[rings.length - 1].r + RING_STEP / 2
+      return { id, members, rings, radius }
+    })
+    .sort((a, b) => b.radius - a.radius)
+
+  // Pack clusters into rows, keeping the whole thing roughly square.
+  const positions: Record<string, Pos> = {}
+  // Aim for a roughly square overall footprint: sqrt of the summed cluster
+  // areas, nudged wider so a big cluster doesn't force one-per-row.
+  const areaSum = clusters.reduce((s, c) => s + (2 * c.radius + CLUSTER_GAP) ** 2, 0)
+  const targetW = Math.max(2 * (clusters[0]?.radius ?? 200) + CLUSTER_GAP, Math.sqrt(areaSum) * 1.3)
+  let x = 0
+  let y = 0
+  let rowH = 0
+  for (const c of clusters) {
+    const d = 2 * c.radius + CLUSTER_GAP
+    if (x > 0 && x + d > targetW) {
+      x = 0
+      y += rowH
+      rowH = 0
+    }
+    const cx = x + c.radius + CLUSTER_GAP / 2
+    const cy = y + c.radius + CLUSTER_GAP / 2
+    positions[c.id] = { x: cx, y: cy }
+    let i = 0
+    for (const [ri, ring] of c.rings.entries()) {
+      const step = (2 * Math.PI) / ring.count
+      // Half-step offset on alternate rings so labels don't line up radially.
+      const phase = ri % 2 ? step / 2 : 0
+      for (let k = 0; k < ring.count; k++, i++) {
+        const a = k * step + phase - Math.PI / 2
+        positions[c.members[i]] = { x: cx + ring.r * Math.cos(a), y: cy + ring.r * Math.sin(a) }
+      }
+    }
+    x += d
+    rowH = Math.max(rowH, d)
+  }
+
+  // Anyone with no hub (no shared employer) goes in a tidy grid underneath.
+  const loose = peopleIds.filter((id) => !claimed.has(id))
+  if (loose.length > 0) {
+    const perRow = Math.max(1, Math.floor(targetW / SLOT))
+    const top = y + rowH + CLUSTER_GAP
+    loose.forEach((id, i) => {
+      positions[id] = { x: (i % perRow) * SLOT, y: top + Math.floor(i / perRow) * (RING_STEP * 0.8) }
+    })
+  }
+  return positions
+}
+
 type Selected = { kind: 'contact'; id: string } | { kind: 'group'; id: string } | { kind: 'company'; key: string } | null
 
 /** Normalize a company name so "Acme Corp." and "acme corp" match. */
@@ -210,6 +318,7 @@ export function Network() {
     // hex: cytoscape's colour parser doesn't understand oklch(), which is what
     // Tailwind v4's --color-* variables actually contain.
     const labelColor = '#64748b'
+    const positions = computePositions(elements)
 
     const cy = cytoscape({
       container: containerRef.current,
@@ -226,8 +335,10 @@ export function Network() {
             color: labelColor,
             'text-valign': 'bottom',
             'text-margin-y': 5,
-            'text-max-width': '90px',
+            // Keep labels inside their SLOT so neighbours can't collide.
+            'text-max-width': '112px',
             'text-wrap': 'ellipsis',
+            'text-background-opacity': 0,
             width: 30,
             height: 30,
             'background-color': '#6366f1',
@@ -245,16 +356,17 @@ export function Network() {
           selector: 'node[company]',
           style: {
             shape: 'round-rectangle',
-            width: 'label',
-            height: 26,
-            'padding-left': '10px',
-            'padding-right': '10px',
+            // Explicit size: `width: 'label'` is deprecated and now resolves to
+            // zero, which made hub nodes render invisibly.
+            width: 140,
+            height: 40,
+            'text-max-width': '128px',
             'background-color': '#0ea5e9',
-            'background-opacity': 0.2,
+            'background-opacity': 0.25,
             'border-color': '#0ea5e9',
-            'border-width': 2,
+            'border-width': 3,
             color: '#0ea5e9',
-            'font-size': 11,
+            'font-size': 14,
             'font-weight': 'bold',
             'text-valign': 'center',
             'text-margin-y': 0,
@@ -264,10 +376,9 @@ export function Network() {
           selector: 'node[gtype]',
           style: {
             shape: 'round-rectangle',
-            width: 'label',
-            height: 22,
-            'padding-left': '8px',
-            'padding-right': '8px',
+            width: 120,
+            height: 32,
+            'text-max-width': '110px',
             'background-color': 'data(gcolor)',
             'background-opacity': 0.2,
             'border-color': 'data(gcolor)',
@@ -288,19 +399,39 @@ export function Network() {
             opacity: 0.7,
           },
         },
-        { selector: 'edge[hub]', style: { width: 1, 'line-color': '#0ea5e9', opacity: 0.35 } },
+        { selector: 'edge[hub]', style: { width: 2, 'line-color': '#0ea5e9', opacity: 0.5 } },
         { selector: 'edge[membership]', style: { width: 1, 'line-style': 'dashed', 'line-color': '#94a3b8', opacity: 0.5 } },
         { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#f59e0b' } },
+        // Zoomed far out, 200+ names become an illegible smear; drop them and
+        // keep only the hub labels until the user zooms in.
+        { selector: 'node.nolabel', style: { label: '' } },
       ],
       layout: {
-        name: 'cose',
-        animate: false,
-        nodeRepulsion: () => 9000,
-        idealEdgeLength: () => 80,
-        padding: 40,
-        randomize: true,
+        name: 'preset',
+        positions: (node: cytoscape.NodeSingular) => positions[node.id()] ?? { x: 0, y: 0 },
+        fit: false,
+        padding: 50,
       } as cytoscape.LayoutOptions,
     })
+
+    // The layout guarantees no label collisions at 1:1, so overlap can only
+    // come from fitting a large graph into a small viewport. Rather than shrink
+    // to illegibility, hold a readable zoom and let the user pan.
+    const LEGIBLE_ZOOM = 0.55
+    cy.fit(undefined, 50)
+    if (cy.zoom() < LEGIBLE_ZOOM) {
+      cy.zoom(LEGIBLE_ZOOM)
+      // Land on the biggest hub so the star structure is visible, rather than
+      // in the middle of a ring with no hub in frame.
+      const hub = cy.nodes('[company]').first()
+      cy.center(hub.nonempty() ? hub : undefined)
+    }
+    const syncLabels = () => {
+      const show = cy.zoom() >= LEGIBLE_ZOOM * 0.9
+      cy.batch(() => cy.nodes().not('[company]').not('[gtype]').toggleClass('nolabel', !show))
+    }
+    syncLabels()
+    cy.on('zoom', syncLabels)
 
     cy.on('tap', 'node', (evt) => {
       const id: string = evt.target.id()
