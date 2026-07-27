@@ -28,10 +28,17 @@ export type CalItem = {
   initials?: string
 }
 
+/**
+ * Chips carry their category in the tint and left border, but the *text* uses
+ * the theme's own foreground token (slate-100). Only slate and indigo are
+ * remapped per theme — pink and emerald keep Tailwind's defaults, so coloured
+ * label text turned unreadable on the light-background themes (light, business,
+ * forest). Using the theme foreground keeps every theme legible for free.
+ */
 const STYLE: Record<CalKind, { dot: string; chip: string; icon: string; name: string }> = {
-  birthday: { dot: 'bg-pink-400', chip: 'bg-pink-500/15 text-pink-300', icon: 'gift', name: 'Birthday' },
-  reminder: { dot: 'bg-indigo-400', chip: 'bg-indigo-500/15 text-indigo-300', icon: 'bell', name: 'Reminder' },
-  event: { dot: 'bg-emerald-400', chip: 'bg-emerald-500/15 text-emerald-300', icon: 'calendar', name: 'Event' },
+  birthday: { dot: 'bg-pink-500', chip: 'bg-pink-500/20 border-l-2 border-pink-500 text-slate-100', icon: 'gift', name: 'Birthday' },
+  reminder: { dot: 'bg-indigo-500', chip: 'bg-indigo-500/20 border-l-2 border-indigo-500 text-slate-100', icon: 'bell', name: 'Reminder' },
+  event: { dot: 'bg-emerald-500', chip: 'bg-emerald-500/20 border-l-2 border-emerald-500 text-slate-100', icon: 'calendar', name: 'Event' },
 }
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -96,7 +103,7 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
         </div>
       </header>
 
-      <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-slate-500 mb-1">
+      <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-medium text-slate-400 mb-1">
         {DOW.map((d) => (
           <div key={d}>{d}</div>
         ))}
@@ -120,7 +127,7 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
                     : 'border-slate-800 hover:border-slate-600'
               } ${outside ? 'opacity-40' : ''}`}
             >
-              <span className={`block text-xs font-bold leading-none ${today ? 'text-indigo-100' : 'text-slate-300'}`}>
+              <span className={`block text-xs font-bold leading-none ${today ? 'text-slate-100' : 'text-slate-300'}`}>
                 {format(d, 'd')}
               </span>
               {/* Details wrap onto as many lines as they need rather than being
@@ -135,14 +142,14 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
                     {it.label}
                   </span>
                 ))}
-                {list.length > 4 && <span className="block text-[10px] text-slate-500">+{list.length - 4} more</span>}
+                {list.length > 4 && <span className="block text-[10px] text-slate-400">+{list.length - 4} more</span>}
               </span>
             </button>
           )
         })}
       </div>
 
-      <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-slate-500">
+      <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-slate-400">
         {(Object.keys(STYLE) as CalKind[]).map((k) => (
           <span key={k} className="flex items-center gap-1.5">
             <span className={`w-1.5 h-1.5 rounded-full ${STYLE[k].dot}`} />
@@ -153,9 +160,9 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
 
       {picked && (
         <div className="mt-3 border-t border-slate-800 pt-3">
-          <p className="text-xs font-semibold text-slate-400 mb-2">{format(picked, 'EEEE, MMMM d')}</p>
+          <p className="text-xs font-semibold text-slate-300 mb-2">{format(picked, 'EEEE, MMMM d')}</p>
           {pickedItems.length === 0 ? (
-            <p className="text-sm text-slate-600">Nothing on this day.</p>
+            <p className="text-sm text-slate-400">Nothing on this day.</p>
           ) : (
             <ul className="space-y-1.5">
               {pickedItems.map((it) => (
@@ -168,7 +175,7 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
                   ) : (
                     <span className="text-slate-100">{it.label}</span>
                   )}
-                  {it.detail && <span className="text-xs text-slate-500">· {it.detail}</span>}
+                  {it.detail && <span className="text-xs text-slate-400">· {it.detail}</span>}
                 </li>
               ))}
             </ul>

@@ -135,10 +135,11 @@ export function CatchUp() {
         <p className="text-sm text-slate-500">{format(new Date(), 'EEEE, MMMM d')}</p>
       </header>
 
-      {/* Two columns on large screens: the running list on the left, the
-          calendar filling the right. The calendar comes last in the DOM, so on
-          mobile the single column puts it at the bottom of the scroll. */}
-      <div className="grid gap-4 items-start lg:grid-cols-[minmax(0,1fr)_minmax(26rem,57%)]">
+      {/* Side by side only from xl up, where the calendar's 26rem minimum and
+          the list can both breathe. Narrower than that — including a small
+          desktop window — it collapses to one column, and since the calendar is
+          last in the DOM it falls to the bottom of the stack. */}
+      <div className="grid gap-4 items-start xl:grid-cols-[minmax(0,1fr)_minmax(26rem,57%)]">
         <div className="space-y-4">
         <Section title={due.length > 0 ? `Needs attention (${due.length})` : 'Needs attention'} icon="bell">
           {due.length === 0 ? empty : <div className="divide-y divide-slate-800">{due.map((r) => <ReminderItem key={r.id} reminder={r} />)}</div>}
@@ -246,7 +247,7 @@ export function CatchUp() {
         </Section>
         </div>
 
-        <div className="lg:sticky lg:top-6">
+        <div className="xl:sticky xl:top-6">
           <CalendarMonth itemsFor={itemsFor} />
         </div>
       </div>
