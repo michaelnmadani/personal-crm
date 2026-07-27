@@ -136,6 +136,19 @@ export const useAllContactTags = () =>
       q<ContactTag[]>(supabase.from('contact_tags').select('contact_id, tag_id, tags(id, name, color)')),
   })
 
+/**
+ * A wide window of interactions for the calendar. The `useInteractions()`
+ * overview is capped at the latest 8, which would leave most months empty.
+ */
+export const useCalendarInteractions = () =>
+  useQuery({
+    queryKey: ['interactions', 'calendar'],
+    queryFn: () =>
+      q<Interaction[]>(
+        supabase.from('interactions').select(INTERACTION_SELECT).order('happened_at', { ascending: false }).limit(500),
+      ),
+  })
+
 /** Interactions for one contact (via participation) or the most recent overall. */
 export const useInteractions = (contactId?: string) =>
   useQuery({

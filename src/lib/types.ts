@@ -18,6 +18,8 @@ export type Contact = {
   linkedin_url: string | null
   photo_url: string | null
   birthday: string | null
+  /** false when only the day and month are known (year stored as the 2000 sentinel) */
+  birthday_has_year: boolean
   how_we_met: string | null
   met_on: string | null
   keep_in_touch_days: number | null

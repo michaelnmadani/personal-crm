@@ -4,7 +4,7 @@ import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import { AuthPage } from './pages/Auth'
 import { Layout } from './components/Layout'
-import { Today } from './pages/Today'
+import { CatchUp } from './pages/CatchUp'
 import { Contacts } from './pages/Contacts'
 import { ContactProfile } from './pages/ContactProfile'
 import { Network } from './pages/Network'
@@ -34,7 +34,7 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<Today />} />
+        <Route index element={<CatchUp />} />
         <Route path="contacts" element={<Contacts />} />
         <Route path="contacts/:id" element={<ContactProfile />} />
         <Route path="network" element={<Network />} />

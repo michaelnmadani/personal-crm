@@ -18,6 +18,21 @@ export function ageOf(birthdate: string | null, approxYear: number | null): stri
   return null
 }
 
+/** Year stored when only the day and month of a birthday are known. */
+export const NO_YEAR = 2000
+
+/** "March 14, 1985" — or just "March 14" when the year isn't known. */
+export function fmtBirthday(birthday: string, hasYear: boolean) {
+  return format(new Date(birthday + 'T00:00:00'), hasYear ? 'MMMM d, yyyy' : 'MMMM d')
+}
+
+/** Age they'll turn on their next birthday, or null when the year is unknown. */
+export function turningAge(birthday: string, hasYear: boolean): number | null {
+  if (!hasYear) return null
+  const born = new Date(birthday + 'T00:00:00')
+  return nextOccurrence(birthday).getFullYear() - born.getFullYear()
+}
+
 /** Next occurrence (this year or next) of a recurring date like a birthday. */
 export function nextOccurrence(dateStr: string): Date {
   const d = new Date(dateStr + 'T00:00:00')

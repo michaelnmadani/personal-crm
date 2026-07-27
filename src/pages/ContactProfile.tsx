@@ -18,7 +18,7 @@ import {
   useRelationships,
   useWorkHistory,
 } from '../lib/hooks'
-import { ageOf, ago, daysUntil, fmtDate, fmtDateTime, fullName, kitDueInDays, nextOccurrence } from '../lib/utils'
+import { ageOf, ago, daysUntil, fmtBirthday, fmtDate, fmtDateTime, fullName, kitDueInDays, nextOccurrence, turningAge } from '../lib/utils'
 import { Avatar } from '../components/Avatar'
 import { ContactForm } from '../components/ContactForm'
 import { Icon, KIND_ICON } from '../components/Icon'
@@ -820,8 +820,12 @@ export function ContactProfile() {
           {contact.how_we_met && <span>Met: {contact.how_we_met}{contact.met_on ? ` (${fmtDate(contact.met_on)})` : ''}</span>}
           {contact.birthday && (
             <span>
-              🎂 {fmtDate(contact.birthday)}
-              {ageOf(contact.birthday, null) && ` — turns ${Number(ageOf(contact.birthday, null)) + 1} in ${daysUntil(nextOccurrence(contact.birthday))}d`}
+              🎂 {fmtBirthday(contact.birthday, contact.birthday_has_year)}
+              {(() => {
+                const turns = turningAge(contact.birthday, contact.birthday_has_year)
+                const days = daysUntil(nextOccurrence(contact.birthday))
+                return turns !== null ? ` — turns ${turns} in ${days}d` : ` — in ${days}d`
+              })()}
             </span>
           )}
         </div>

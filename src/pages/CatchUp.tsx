@@ -1,11 +1,13 @@
+import { useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import type { ContactOverview } from '../lib/types'
-import { useAllFamily, useContacts, useInteractions, useOpenReminders } from '../lib/hooks'
+import { useAllFamily, useCalendarInteractions, useContacts, useInteractions, useOpenReminders } from '../lib/hooks'
 import { ago, daysUntil, effectiveDue, fullName, isDueNow, kitDueInDays, nextOccurrence } from '../lib/utils'
 import { Avatar } from '../components/Avatar'
 import { Icon, KIND_ICON } from '../components/Icon'
 import { ReminderItem } from '../components/ReminderItem'
+import { CalendarMonth, type CalItem } from '../components/CalendarMonth'
 import { card, chip } from '../components/ui'
 
 function Section({ title, icon, children }: { title: string; icon: string; children: React.ReactNode }) {
@@ -22,11 +24,12 @@ function Section({ title, icon, children }: { title: string; icon: string; child
 
 const empty = <p className="text-sm text-slate-500 py-1">Nothing here — you're all caught up.</p>
 
-export function Today() {
+export function CatchUp() {
   const { data: reminders } = useOpenReminders()
   const { data: contacts } = useContacts()
   const { data: family } = useAllFamily()
   const { data: recent } = useInteractions()
+  const { data: calendarEvents } = useCalendarInteractions()
 
   const due = (reminders ?? []).filter(isDueNow)
   const upcoming = (reminders ?? []).filter((r) => {
@@ -72,12 +75,65 @@ export function Today() {
     .sort((a, b) => a.last - b.last)
     .slice(0, 5)
 
+  // Everything that lands on a calendar day, for whatever month is on screen.
+  // Birthdays recur, so they're projected into the year(s) the grid spans.
+  const itemsFor = useCallback(
+    (start: Date, end: Date): CalItem[] => {
+      const out: CalItem[] = []
+      const inRange = (d: Date) => d >= start && d <= end
+      const years = [...new Set([start.getFullYear(), end.getFullYear()])]
+
+      const addBirthday = (id: string, iso: string, label: string, detail: string, contactId?: string) => {
+        const src = new Date(iso + 'T00:00:00')
+        for (const y of years) {
+          const d = new Date(y, src.getMonth(), src.getDate())
+          if (inRange(d)) out.push({ id: `${id}-${y}`, kind: 'birthday', label, detail, date: d, contactId })
+        }
+      }
+      for (const c of contacts ?? []) if (c.birthday) addBirthday(`b-${c.id}`, c.birthday, fullName(c), 'birthday', c.id)
+      for (const f of family ?? [])
+        if (f.birthdate && f.contacts)
+          addBirthday(`bf-${f.id}`, f.birthdate, f.name, `${f.relation} of ${fullName(f.contacts)}`, f.contacts.id)
+
+      for (const r of reminders ?? []) {
+        const d = effectiveDue(r)
+        if (inRange(d))
+          out.push({
+            id: `r-${r.id}`,
+            kind: 'reminder',
+            label: r.title,
+            date: d,
+            contactId: r.contacts?.id,
+            detail: r.contacts ? fullName(r.contacts) : undefined,
+          })
+      }
+
+      for (const i of calendarEvents ?? []) {
+        const d = new Date(i.happened_at)
+        if (!inRange(d)) continue
+        const who = (i.participants ?? []).map((p) => p.contacts && fullName(p.contacts)).filter(Boolean)
+        out.push({
+          id: `e-${i.id}`,
+          kind: 'event',
+          label: i.title || i.kind,
+          date: d,
+          contactId: i.participants?.[0]?.contacts?.id ?? undefined,
+          detail: who.join(', ') || undefined,
+        })
+      }
+      return out
+    },
+    [contacts, family, reminders, calendarEvents],
+  )
+
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-2xl font-bold">Today</h1>
+        <h1 className="text-2xl font-bold">Catch Up</h1>
         <p className="text-sm text-slate-500">{format(new Date(), 'EEEE, MMMM d')}</p>
       </header>
+
+      <CalendarMonth itemsFor={itemsFor} />
 
       <Section title={due.length > 0 ? `Needs attention (${due.length})` : 'Needs attention'} icon="bell">
         {due.length === 0 ? empty : <div className="divide-y divide-slate-800">{due.map((r) => <ReminderItem key={r.id} reminder={r} />)}</div>}

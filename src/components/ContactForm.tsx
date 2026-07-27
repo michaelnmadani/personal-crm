@@ -1,9 +1,25 @@
 import { useState } from 'react'
 import type { Contact, ContactKind, LabeledValue } from '../lib/types'
 import { api, useMut } from '../lib/hooks'
+import { NO_YEAR } from '../lib/utils'
 import { Modal } from './Modal'
 import { Icon } from './Icon'
 import { btnGhost, btnPrimary, input, label } from './ui'
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+/**
+ * Assemble the birthday columns from the month/day/year inputs. The year is
+ * optional: when it's blank we store the NO_YEAR sentinel and flag it, so the
+ * column stays a real date while "day and month only" is still expressible.
+ */
+function birthdayFields(month: string, day: string, year: string) {
+  if (!month || !day) return { birthday: null, birthday_has_year: true }
+  const hasYear = /^\d{4}$/.test(year.trim())
+  const y = hasYear ? Number(year) : NO_YEAR
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return { birthday: `${y}-${pad(Number(month))}-${pad(Number(day))}`, birthday_has_year: hasYear }
+}
 
 const KIT_OPTIONS = [
   { v: '', t: 'No cadence' },
@@ -71,7 +87,9 @@ export function ContactForm({ contact, onClose }: { contact?: Contact; onClose: 
     location: contact?.location ?? '',
     website: contact?.website ?? '',
     linkedin_url: contact?.linkedin_url ?? '',
-    birthday: contact?.birthday ?? '',
+    bMonth: contact?.birthday ? String(Number(contact.birthday.slice(5, 7))) : '',
+    bDay: contact?.birthday ? String(Number(contact.birthday.slice(8, 10))) : '',
+    bYear: contact?.birthday && contact.birthday_has_year !== false ? contact.birthday.slice(0, 4) : '',
     met_on: contact?.met_on ?? '',
     how_we_met: contact?.how_we_met ?? '',
     keep_in_touch_days: contact?.keep_in_touch_days ? String(contact.keep_in_touch_days) : '',
@@ -98,7 +116,7 @@ export function ContactForm({ contact, onClose }: { contact?: Contact; onClose: 
       location: f.location.trim() || null,
       website: f.website.trim() || null,
       linkedin_url: f.linkedin_url.trim() || null,
-      birthday: f.birthday || null,
+      ...birthdayFields(f.bMonth, f.bDay, f.bYear),
       met_on: f.met_on || null,
       how_we_met: f.how_we_met.trim() || null,
       keep_in_touch_days: f.keep_in_touch_days ? Number(f.keep_in_touch_days) : null,
@@ -147,7 +165,33 @@ export function ContactForm({ contact, onClose }: { contact?: Contact; onClose: 
           </div>
           <div>
             <span className={label}>Birthday</span>
-            <input type="date" className={input} value={f.birthday} onChange={set('birthday')} />
+            <div className="flex gap-1.5">
+              <select className={input} value={f.bMonth} onChange={set('bMonth')} aria-label="Birth month">
+                <option value="">Month</option>
+                {MONTHS.map((m, i) => (
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <select className={`${input} w-24`} value={f.bDay} onChange={set('bDay')} aria-label="Birth day">
+                <option value="">Day</option>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+              <input
+                className={`${input} w-28`}
+                value={f.bYear}
+                onChange={set('bYear')}
+                inputMode="numeric"
+                maxLength={4}
+                placeholder="Year (opt.)"
+                aria-label="Birth year (optional)"
+              />
+            </div>
           </div>
         </div>
 

@@ -7,7 +7,7 @@ import { isDueNow } from '../lib/utils'
 import { Icon } from './Icon'
 
 const TABS = [
-  { to: '/', label: 'Today', icon: 'home' },
+  { to: '/', label: 'Catch Up', icon: 'home' },
   { to: '/contacts', label: 'Contacts', icon: 'users' },
   { to: '/network', label: 'Network', icon: 'share' },
   { to: '/reminders', label: 'Reminders', icon: 'bell' },
@@ -81,7 +81,7 @@ export function Layout() {
         </nav>
       </aside>
 
-      {/* Overdue banner — persistent in-app alert, shown on every screen except Today/Reminders */}
+      {/* Overdue banner — persistent in-app alert, shown on every screen except Catch Up/Reminders */}
       {showBanner && (
         <NavLink to="/" className="block bg-red-600/90 text-white text-sm font-medium text-center py-2 px-4">
           {dueCount} reminder{dueCount === 1 ? '' : 's'} need{dueCount === 1 ? 's' : ''} your attention →
