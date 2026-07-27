@@ -55,6 +55,66 @@ html {
   }
 }
 
+/*
+ * Network graph palette. Cytoscape draws to a canvas with its own colour
+ * parser, which doesn't understand the oklch() values Tailwind v4 stores its
+ * palette in — so the graph's colours are declared here as plain hex and read
+ * at render time. Contact-type colours stay constant across themes because they
+ * encode meaning; only the label and hub shift, so names stay readable against
+ * each theme's card background.
+ */
+:root {
+  --graph-label: #cbd5e1;
+  --graph-node: #6366f1;
+  --graph-node-personal: #ec4899;
+  --graph-node-both: #8b5cf6;
+  --graph-hub: #0ea5e9;
+  --graph-edge: #64748b;
+}
+[data-theme='light'] {
+  --graph-label: #334155;
+  --graph-node: #4f46e5;
+  --graph-node-personal: #db2777;
+  --graph-node-both: #7c3aed;
+  --graph-hub: #0369a1;
+}
+[data-theme='business'] {
+  --graph-label: #333d4a;
+  --graph-node: #265d99;
+  --graph-node-personal: #b0455f;
+  --graph-node-both: #6b5b95;
+  --graph-hub: #1e4a7a;
+}
+[data-theme='christmas'] {
+  --graph-label: #c2dccf;
+  --graph-node: #d93636;
+  --graph-node-personal: #e0a458;
+  --graph-node-both: #b45309;
+  --graph-hub: #34d399;
+}
+[data-theme='anime'] {
+  --graph-label: #cbc2df;
+  --graph-node: #ec4899;
+  --graph-node-personal: #22d3ee;
+  --graph-node-both: #f59e0b;
+  --graph-hub: #a78bfa;
+}
+[data-theme='forest'] {
+  --graph-label: #3f4a2e;
+  --graph-node: #9a5730;
+  --graph-node-personal: #6d8c3a;
+  --graph-node-both: #8a6d3b;
+  --graph-hub: #4d7c2a;
+  --graph-edge: #6b7a52;
+}
+[data-theme='ocean'] {
+  --graph-label: #bed5e3;
+  --graph-node: #0891b2;
+  --graph-node-personal: #f472b6;
+  --graph-node-both: #818cf8;
+  --graph-hub: #38bdf8;
+}
+
 body {
   @apply bg-slate-950 text-slate-100 antialiased;
 }

@@ -395,7 +395,16 @@ export function Network() {
   const [focusCompany, setFocusCompany] = useState<string | null>(null)
   // Drag one person onto another to propose a connection.
   const [pendingLink, setPendingLink] = useState<{ from: string; to: string } | null>(null)
+  // Redraw when the theme changes so the canvas picks up the new palette — the
+  // graph is drawn once to a canvas, so CSS alone can't restyle it.
+  const [themeTick, setThemeTick] = useState(0)
   const addLink = useMut(api.addRelationship)
+
+  useEffect(() => {
+    const obs = new MutationObserver(() => setThemeTick((n) => n + 1))
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => obs.disconnect()
+  }, [])
 
   const byId = useMemo(() => new Map((contacts ?? []).map((c) => [c.id, c])), [contacts])
 
@@ -553,10 +562,17 @@ export function Network() {
 
   useEffect(() => {
     if (!containerRef.current) return
-    // Mid-slate reads on both light and dark canvases. Deliberately a literal
-    // hex: cytoscape's colour parser doesn't understand oklch(), which is what
-    // Tailwind v4's --color-* variables actually contain.
-    const labelColor = '#64748b'
+    // The graph palette lives in CSS as plain hex per theme (cytoscape's colour
+    // parser can't read Tailwind's oklch values), so names stay readable against
+    // whichever card background the current theme paints behind the canvas.
+    const css = getComputedStyle(containerRef.current)
+    const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback
+    const labelColor = v('--graph-label', '#cbd5e1')
+    const nodeColor = v('--graph-node', '#6366f1')
+    const nodePersonal = v('--graph-node-personal', '#ec4899')
+    const nodeBoth = v('--graph-node-both', '#8b5cf6')
+    const hubColor = v('--graph-hub', '#0ea5e9')
+    const edgeColor = v('--graph-edge', '#64748b')
     const positions = computePositions(elements)
 
     const cy = cytoscape({
@@ -577,21 +593,15 @@ export function Network() {
             // Keep labels inside their SLOT so neighbours can't collide.
             'text-max-width': '112px',
             'text-wrap': 'ellipsis',
-            // Backing so a line passing beneath a name doesn't render it (or
-            // itself) unreadable.
-            'text-background-color': '#0f172a',
-            'text-background-opacity': 0.72,
-            'text-background-padding': '2px',
-            'text-background-shape': 'roundrectangle',
             width: 30,
             height: 30,
-            'background-color': '#6366f1',
+            'background-color': nodeColor,
             'border-width': 1.5,
-            'border-color': '#312e81',
+            'border-color': nodeColor,
           },
         },
-        { selector: 'node[kind="personal"]', style: { 'background-color': '#ec4899', 'border-color': '#831843' } },
-        { selector: 'node[kind="both"]', style: { 'background-color': '#8b5cf6', 'border-color': '#4c1d95' } },
+        { selector: 'node[kind="personal"]', style: { 'background-color': nodePersonal, 'border-color': nodePersonal } },
+        { selector: 'node[kind="both"]', style: { 'background-color': nodeBoth, 'border-color': nodeBoth } },
         {
           selector: 'node[photo]',
           style: { 'background-image': 'data(photo)', 'background-fit': 'cover', 'background-color': '#1e293b' },
@@ -606,11 +616,11 @@ export function Network() {
             height: 'data(hh)',
             'text-wrap': 'wrap',
             'text-max-width': 'data(hw)',
-            'background-color': '#0ea5e9',
-            'background-opacity': 0.25,
-            'border-color': '#0ea5e9',
+            'background-color': hubColor,
+            'background-opacity': 0.2,
+            'border-color': hubColor,
             'border-width': 3,
-            color: '#0ea5e9',
+            color: labelColor,
             'font-size': 14,
             'font-weight': 'bold',
             'text-valign': 'center',
@@ -640,7 +650,7 @@ export function Network() {
           selector: 'edge',
           style: {
             width: 'mapData(w, 1, 5, 1.5, 4)',
-            'line-color': '#64748b',
+            'line-color': edgeColor,
             // Slight curvature so lines that would run along the same path stay
             // individually visible instead of merging into one stroke.
             'curve-style': 'unbundled-bezier',
@@ -649,8 +659,8 @@ export function Network() {
             opacity: 0.75,
           },
         },
-        { selector: 'edge[hub]', style: { width: 2, 'line-color': '#0ea5e9', opacity: 0.5 } },
-        { selector: 'edge[membership]', style: { width: 1, 'line-style': 'dashed', 'line-color': '#94a3b8', opacity: 0.5 } },
+        { selector: 'edge[hub]', style: { width: 2, 'line-color': hubColor, opacity: 0.5 } },
+        { selector: 'edge[membership]', style: { width: 1, 'line-style': 'dashed', 'line-color': edgeColor, opacity: 0.45 } },
         { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#f59e0b' } },
         // The person you've focused is drawn at double size so they stand out
         // as the centre of the view.
@@ -756,7 +766,7 @@ export function Network() {
       cyRef.current = null
       cy.destroy()
     }
-  }, [elements, focusPerson])
+  }, [elements, focusPerson, themeTick])
 
   const doSearch = (e: React.FormEvent) => {
     e.preventDefault()
