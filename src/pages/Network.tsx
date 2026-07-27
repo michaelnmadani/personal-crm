@@ -378,10 +378,17 @@ export function Network() {
         els.push({ data: { id: `m-${g.id}-${m.contact_id}`, source: m.contact_id, target: `g-${g.id}`, membership: 1 } })
     }
 
-    // Explicit relationships between shown people.
-    for (const r of rels ?? [])
-      if (peopleIds.has(r.from_contact) && peopleIds.has(r.to_contact))
-        els.push({ data: { id: `r-${r.id}`, source: r.from_contact, target: r.to_contact, rel: r.relation, w: r.strength } })
+    // Explicit relationships between shown people. A connection is mutual, so
+    // draw one line per pair even if both directions somehow exist.
+    const drawnPairs = new Set<string>()
+    for (const r of rels ?? []) {
+      if (!peopleIds.has(r.from_contact) || !peopleIds.has(r.to_contact)) continue
+      const pair =
+        r.from_contact < r.to_contact ? `${r.from_contact}|${r.to_contact}` : `${r.to_contact}|${r.from_contact}`
+      if (drawnPairs.has(pair)) continue
+      drawnPairs.add(pair)
+      els.push({ data: { id: `r-${r.id}`, source: r.from_contact, target: r.to_contact, rel: r.relation, w: r.strength } })
+    }
 
     return { elements: els, shown: peopleIds.size, total: poolIds.size, note }
   }, [contacts, rels, groups, memberships, photos, kindFilter, groupFilter, focusPerson, focusCompany, companyIndex, companiesOf, byId])

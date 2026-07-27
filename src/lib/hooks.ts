@@ -321,8 +321,35 @@ export const api = {
   removeGroupMember: ({ groupId, contactId }: { groupId: string; contactId: string }) =>
     q<null>(supabase.from('group_members').delete().eq('group_id', groupId).eq('contact_id', contactId)),
 
-  addRelationship: (r: { from_contact: string; to_contact: string; relation: string; strength: number }) =>
-    q<Relationship>(supabase.from('relationships').insert(r).select().single()),
+  /**
+   * Connections are mutual: one row per pair, read from either side, so adding
+   * one to a person automatically gives the other person the same connection.
+   * If the pair is already linked (in either direction) update that row rather
+   * than inserting a second one — a duplicate would draw two lines on the
+   * network graph, and the unique index would reject it anyway.
+   */
+  async addRelationship(r: { from_contact: string; to_contact: string; relation: string; strength: number }) {
+    const existing = await q<Relationship[]>(
+      supabase
+        .from('relationships')
+        .select('*')
+        .or(
+          `and(from_contact.eq.${r.from_contact},to_contact.eq.${r.to_contact}),` +
+            `and(from_contact.eq.${r.to_contact},to_contact.eq.${r.from_contact})`,
+        ),
+    )
+    if (existing[0]) {
+      return q<Relationship>(
+        supabase
+          .from('relationships')
+          .update({ relation: r.relation, strength: r.strength })
+          .eq('id', existing[0].id)
+          .select()
+          .single(),
+      )
+    }
+    return q<Relationship>(supabase.from('relationships').insert(r).select().single())
+  },
   deleteRelationship: (id: string) => q<null>(supabase.from('relationships').delete().eq('id', id)),
 
   async uploadPhoto({ contact, file }: { contact: Contact; file: File }) {
