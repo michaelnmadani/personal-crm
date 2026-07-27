@@ -121,7 +121,6 @@ export type Relationship = {
   id: string
   from_contact: string
   to_contact: string
-  relation: string
-  strength: number
+  /** Optional free-text comment about how the two are connected. */
   notes: string | null
 }

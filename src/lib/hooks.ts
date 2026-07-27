@@ -344,7 +344,8 @@ export const api = {
    * than inserting a second one — a duplicate would draw two lines on the
    * network graph, and the unique index would reject it anyway.
    */
-  async addRelationship(r: { from_contact: string; to_contact: string; relation: string; strength: number }) {
+  async addRelationship(r: { from_contact: string; to_contact: string; notes?: string | null }) {
+    const notes = r.notes?.trim() || null
     const existing = await q<Relationship[]>(
       supabase
         .from('relationships')
@@ -355,17 +356,32 @@ export const api = {
         ),
     )
     if (existing[0]) {
+      // Already linked, and the link itself carries nothing to change. Only
+      // touch the comment when a new one was actually typed, so reconnecting a
+      // pair doesn't wipe what's already written there.
+      if (!notes) return existing[0]
       return q<Relationship>(
-        supabase
-          .from('relationships')
-          .update({ relation: r.relation, strength: r.strength })
-          .eq('id', existing[0].id)
-          .select()
-          .single(),
+        supabase.from('relationships').update({ notes }).eq('id', existing[0].id).select().single(),
       )
     }
-    return q<Relationship>(supabase.from('relationships').insert(r).select().single())
+    return q<Relationship>(
+      supabase
+        .from('relationships')
+        .insert({ from_contact: r.from_contact, to_contact: r.to_contact, notes })
+        .select()
+        .single(),
+    )
   },
+  /** Edit the comment on an existing connection; empty clears it. */
+  setRelationshipNote: ({ id, notes }: { id: string; notes: string }) =>
+    q<Relationship>(
+      supabase
+        .from('relationships')
+        .update({ notes: notes.trim() || null })
+        .eq('id', id)
+        .select()
+        .single(),
+    ),
   deleteRelationship: (id: string) => q<null>(supabase.from('relationships').delete().eq('id', id)),
 
   async uploadPhoto({ contact, file }: { contact: Contact; file: File }) {

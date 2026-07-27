@@ -41,7 +41,6 @@ const SLOT = 132
 const RING_0 = 165
 const RING_STEP = 104
 const CLUSTER_GAP = 90
-const EDGE_TYPES = ['knows', 'friend', 'family', 'colleague', 'introduced me', 'client', 'mentor']
 
 type Pos = { x: number; y: number }
 
@@ -309,10 +308,9 @@ function ConnectModal({
   pending: boolean
   error: string | null
   onCancel: () => void
-  onConfirm: (relation: string, strength: number) => void
+  onConfirm: (comment: string) => void
 }) {
-  const [relation, setRelation] = useState('knows')
-  const [strength, setStrength] = useState('3')
+  const [comment, setComment] = useState('')
   if (!from || !to) return null
 
   return (
@@ -332,34 +330,21 @@ function ConnectModal({
         <p className="text-xs text-slate-500 text-center">
           The connection is mutual — it appears on both contact cards, and once on the chart.
         </p>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="text-xs text-slate-400">
-            Relationship
-            <select className={input} value={relation} onChange={(e) => setRelation(e.target.value)}>
-              {EDGE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-slate-400">
-            Strength
-            <select className={input} value={strength} onChange={(e) => setStrength(e.target.value)}>
-              {[1, 2, 3, 4, 5].map((n) => (
-                <option key={n} value={n}>
-                  {'●'.repeat(n)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <label className="block text-xs text-slate-400">
+          Comment (optional)
+          <input
+            className={input}
+            placeholder="How do they know each other?"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+          />
+        </label>
         {error && <p className="text-sm text-red-400">{error}</p>}
         <div className="flex justify-end gap-2">
           <button className={btnGhost} onClick={onCancel} disabled={pending}>
             Cancel
           </button>
-          <button className={btnPrimary} onClick={() => onConfirm(relation, Number(strength))} disabled={pending}>
+          <button className={btnPrimary} onClick={() => onConfirm(comment)} disabled={pending}>
             {pending ? 'Connecting…' : 'Connect'}
           </button>
         </div>
@@ -560,7 +545,7 @@ export function Network() {
         r.from_contact < r.to_contact ? `${r.from_contact}|${r.to_contact}` : `${r.to_contact}|${r.from_contact}`
       if (drawnPairs.has(pair)) continue
       drawnPairs.add(pair)
-      els.push({ data: { id: `r-${r.id}`, source: r.from_contact, target: r.to_contact, rel: r.relation, w: r.strength } })
+      els.push({ data: { id: `r-${r.id}`, source: r.from_contact, target: r.to_contact, link: 1 } })
     }
 
     return { elements: els, shown: peopleIds.size, total: poolIds.size, note }
@@ -657,7 +642,8 @@ export function Network() {
         {
           selector: 'edge',
           style: {
-            width: 'mapData(w, 1, 5, 1.5, 4)',
+            // Every connection is just a link, so every line is drawn the same.
+            width: 2.5,
             'line-color': edgeColor,
             // Slight curvature so lines that would run along the same path stay
             // individually visible instead of merging into one stroke.
@@ -996,12 +982,11 @@ export function Network() {
           pending={addLink.isPending}
           error={addLink.isError ? (addLink.error as Error).message : null}
           onCancel={() => setPendingLink(null)}
-          onConfirm={async (relation, strength) => {
+          onConfirm={async (comment) => {
             await addLink.mutateAsync({
               from_contact: pendingLink.from,
               to_contact: pendingLink.to,
-              relation,
-              strength,
+              notes: comment,
             })
             setPendingLink(null)
           }}
@@ -1011,7 +996,7 @@ export function Network() {
       <p className="text-xs text-slate-600">
         Search a name to see just their network, or click a <span className="text-sky-500">company</span> hub to explore
         everyone there. Drag to pan · scroll to zoom. Blue hubs group people by shared employer; dashed lines are group
-        memberships; solid lines are direct connections you've added (thicker = stronger). Drag a node anywhere to
+        memberships; solid lines are direct connections you've added. Drag a node anywhere to
         rearrange the chart — it stays put; drop one person on top of another to connect them. "Reset layout" puts
         everything back.
       </p>

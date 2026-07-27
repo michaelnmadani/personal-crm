@@ -133,7 +133,6 @@ function MergeModal({ contact, onClose }: { contact: ContactOverview; onClose: (
 
 const RELATIONS: Relation[] = ['spouse', 'partner', 'child', 'parent', 'sibling', 'pet', 'other']
 const GROUP_TYPES: GroupType[] = ['company', 'church', 'sports', 'school', 'club', 'nonprofit', 'family', 'other']
-const EDGE_TYPES = ['knows', 'friend', 'family', 'colleague', 'introduced me', 'client', 'mentor']
 
 /** Avatar with photo upload: click to choose an image, small × to remove. */
 function PhotoAvatar({ contact }: { contact: ContactOverview }) {
@@ -267,10 +266,13 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
   const { data: contacts } = useContacts()
   const add = useMut(api.addRelationship)
   const remove = useMut(api.deleteRelationship)
+  const setNote = useMut(api.setRelationshipNote)
   const [adding, setAdding] = useState(false)
   const [other, setOther] = useState('')
-  const [relation, setRelation] = useState('knows')
-  const [strength, setStrength] = useState('3')
+  const [comment, setComment] = useState('')
+  // Connection whose comment is being edited, and the draft text for it.
+  const [editing, setEditing] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
 
   const byId = new Map((contacts ?? []).map((c) => [c.id, c]))
   const mine = (rels ?? []).filter((r) => r.from_contact === contactId || r.to_contact === contactId)
@@ -279,9 +281,17 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!other) return
-    await add.mutateAsync({ from_contact: contactId, to_contact: other, relation, strength: Number(strength) })
+    await add.mutateAsync({ from_contact: contactId, to_contact: other, notes: comment })
     setOther('')
+    setComment('')
     setAdding(false)
+  }
+
+  const saveNote = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editing) return
+    await setNote.mutateAsync({ id: editing, notes: draft })
+    setEditing(null)
   }
 
   return (
@@ -303,20 +313,52 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
           const person = byId.get(otherId)
           if (!person) return null
           return (
-            <li key={r.id} className="flex items-center gap-2 text-sm group">
-              <Link to={`/contacts/${person.id}`} className="text-slate-200 hover:text-indigo-300">
-                {fullName(person)}
-              </Link>
-              <span className="text-xs text-slate-500">
-                {r.relation} · {'●'.repeat(r.strength)}
-              </span>
-              <button
-                className="ml-auto opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400"
-                onClick={() => remove.mutate(r.id)}
-                aria-label="Remove connection"
-              >
-                <Icon name="x" className="w-3.5 h-3.5" />
-              </button>
+            <li key={r.id} className="text-sm group">
+              <div className="flex items-center gap-2">
+                <Link to={`/contacts/${person.id}`} className="text-slate-200 hover:text-indigo-300">
+                  {fullName(person)}
+                </Link>
+                <button
+                  className="ml-auto opacity-0 group-hover:opacity-100 text-slate-600 hover:text-indigo-400"
+                  onClick={() => {
+                    setEditing(r.id)
+                    setDraft(r.notes ?? '')
+                  }}
+                  aria-label={`Comment on connection to ${fullName(person)}`}
+                >
+                  <Icon name="edit" className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400"
+                  onClick={() => remove.mutate(r.id)}
+                  aria-label="Remove connection"
+                >
+                  <Icon name="x" className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {editing === r.id ? (
+                <form onSubmit={saveNote} className="flex gap-2 mt-1">
+                  <input
+                    className={input}
+                    placeholder="Comment (optional)"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    autoFocus
+                  />
+                  <button type="submit" className="text-xs text-indigo-400 hover:text-indigo-300 shrink-0">
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
+                    onClick={() => setEditing(null)}
+                  >
+                    Cancel
+                  </button>
+                </form>
+              ) : (
+                r.notes && <p className="text-xs text-slate-500 whitespace-pre-wrap">{r.notes}</p>
+              )}
             </li>
           )
         })}
@@ -332,22 +374,12 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
               </option>
             ))}
           </select>
-          <div className="flex gap-2">
-            <select className={input} value={relation} onChange={(e) => setRelation(e.target.value)}>
-              {EDGE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-            <select className={input} value={strength} onChange={(e) => setStrength(e.target.value)}>
-              {[1, 2, 3, 4, 5].map((n) => (
-                <option key={n} value={n}>
-                  strength {n}
-                </option>
-              ))}
-            </select>
-          </div>
+          <input
+            className={input}
+            placeholder="Comment (optional) — how do they know each other?"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+          />
           <button type="submit" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
             Save connection
           </button>
