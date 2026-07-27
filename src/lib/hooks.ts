@@ -310,6 +310,8 @@ export const api = {
 
   createGroup: (g: { name: string; type: GroupType }) =>
     q<Group>(supabase.from('groups').insert(g).select().single()),
+  updateGroup: ({ id, ...patch }: { id: string; name?: string; type?: GroupType }) =>
+    q<Group>(supabase.from('groups').update(patch).eq('id', id).select().single()),
   deleteGroup: (id: string) => q<null>(supabase.from('groups').delete().eq('id', id)),
 
   /** Add a contact to a group by group name — creates the group if it doesn't exist. */

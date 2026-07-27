@@ -160,7 +160,7 @@ export function Settings() {
           </Link>
         </div>
         <p className="text-sm text-slate-400">
-          Create or delete groups and manage who's in them. Deleting a group never deletes contacts.
+          Create, rename or delete groups and manage who's in them. Deleting a group never deletes contacts.
         </p>
         <GroupManager />
       </section>

@@ -5,7 +5,7 @@ import { api, useContacts, useGroupMembers, useGroups, useMut, usePhotoUrls } fr
 import { fullName } from '../lib/utils'
 import { Avatar } from './Avatar'
 import { Icon } from './Icon'
-import { btnPrimary, chip, input } from './ui'
+import { btnGhost, btnPrimary, chip, input } from './ui'
 
 const GROUP_TYPES: GroupType[] = ['company', 'church', 'sports', 'school', 'club', 'nonprofit', 'family', 'other']
 
@@ -125,10 +125,16 @@ function GroupMembers({ groupId }: { groupId: string }) {
 export function GroupManager() {
   const { data: groups } = useGroups()
   const create = useMut(api.createGroup)
+  const update = useMut(api.updateGroup)
   const remove = useMut(api.deleteGroup)
   const [name, setName] = useState('')
   const [type, setType] = useState<GroupType>('company')
   const [open, setOpen] = useState<string | null>(null)
+  // The group being renamed plus its draft values. Kept here rather than in the
+  // row so cancelling just drops them and the saved name comes straight back.
+  const [editing, setEditing] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState('')
+  const [draftType, setDraftType] = useState<GroupType>('company')
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -138,11 +144,25 @@ export function GroupManager() {
     setOpen(g.id) // jump straight to adding people to what you just made
   }
 
+  const startEdit = (g: { id: string; name: string; type: GroupType }) => {
+    setEditing(g.id)
+    setDraftName(g.name)
+    setDraftType(g.type)
+  }
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editing || !draftName.trim()) return
+    await update.mutateAsync({ id: editing, name: draftName.trim(), type: draftType })
+    setEditing(null)
+  }
+
   const onDelete = async (id: string, label: string) => {
     if (!window.confirm(`Delete the group “${label}”? Contacts stay; only the group and its memberships are removed.`))
       return
     await remove.mutateAsync(id)
     if (open === id) setOpen(null)
+    if (editing === id) setEditing(null)
   }
 
   return (
@@ -173,6 +193,7 @@ export function GroupManager() {
         </button>
       </form>
       {create.isError && <p className="text-sm text-red-400">{(create.error as Error).message}</p>}
+      {update.isError && <p className="text-sm text-red-400">{(update.error as Error).message}</p>}
 
       {(groups ?? []).length === 0 ? (
         <p className="text-sm text-slate-500">No groups yet. Create one above.</p>
@@ -183,31 +204,74 @@ export function GroupManager() {
             const expanded = open === g.id
             return (
               <li key={g.id}>
-                <div className="flex items-center gap-2 p-2">
-                  <button
-                    className="flex flex-1 items-center gap-2 text-left min-w-0"
-                    onClick={() => setOpen(expanded ? null : g.id)}
-                    aria-expanded={expanded}
-                  >
-                    <Icon
-                      name="back"
-                      className={`w-3.5 h-3.5 shrink-0 text-slate-500 ${expanded ? '-rotate-90' : 'rotate-180'}`}
+                {editing === g.id ? (
+                  <form onSubmit={saveEdit} className="flex flex-wrap items-center gap-2 p-2">
+                    <input
+                      className={`${input} flex-1 basis-48 min-w-40`}
+                      value={draftName}
+                      onChange={(e) => setDraftName(e.target.value)}
+                      aria-label="Group name"
+                      autoFocus
                     />
-                    <span className={`${chip} ${TYPE_STYLE[g.type]} text-slate-100 capitalize shrink-0`}>{g.type}</span>
-                    <span className="text-sm font-medium text-slate-100 truncate">{g.name}</span>
-                    <span className="ml-auto shrink-0 text-xs text-slate-500">
-                      {count} member{count === 1 ? '' : 's'}
-                    </span>
-                  </button>
-                  <button
-                    className="p-1.5 text-slate-500 hover:text-red-400"
-                    onClick={() => onDelete(g.id, g.name)}
-                    aria-label={`Delete group ${g.name}`}
-                  >
-                    <Icon name="trash" className="w-4 h-4" />
-                  </button>
-                </div>
-                {expanded && <GroupMembers groupId={g.id} />}
+                    <select
+                      className={`${FIELD} shrink-0 capitalize`}
+                      value={draftType}
+                      onChange={(e) => setDraftType(e.target.value as GroupType)}
+                      aria-label="Group type"
+                    >
+                      {GROUP_TYPES.map((t) => (
+                        <option key={t} value={t} className="capitalize">
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="submit"
+                      className={`${btnPrimary} shrink-0`}
+                      disabled={!draftName.trim() || update.isPending}
+                    >
+                      <Icon name="check" className="w-4 h-4" /> Save
+                    </button>
+                    <button type="button" className={`${btnGhost} shrink-0`} onClick={() => setEditing(null)}>
+                      Cancel
+                    </button>
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-2 p-2">
+                    <button
+                      className="flex flex-1 items-center gap-2 text-left min-w-0"
+                      onClick={() => setOpen(expanded ? null : g.id)}
+                      aria-expanded={expanded}
+                    >
+                      <Icon
+                        name="back"
+                        className={`w-3.5 h-3.5 shrink-0 text-slate-500 ${expanded ? '-rotate-90' : 'rotate-180'}`}
+                      />
+                      <span className={`${chip} ${TYPE_STYLE[g.type]} text-slate-100 capitalize shrink-0`}>
+                        {g.type}
+                      </span>
+                      <span className="text-sm font-medium text-slate-100 truncate">{g.name}</span>
+                      <span className="ml-auto shrink-0 text-xs text-slate-500">
+                        {count} member{count === 1 ? '' : 's'}
+                      </span>
+                    </button>
+                    <button
+                      className="p-1.5 text-slate-500 hover:text-indigo-400"
+                      onClick={() => startEdit(g)}
+                      aria-label={`Rename group ${g.name}`}
+                    >
+                      <Icon name="edit" className="w-4 h-4" />
+                    </button>
+                    <button
+                      className="p-1.5 text-slate-500 hover:text-red-400"
+                      onClick={() => onDelete(g.id, g.name)}
+                      aria-label={`Delete group ${g.name}`}
+                    >
+                      <Icon name="trash" className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+                {expanded && editing !== g.id && <GroupMembers groupId={g.id} />}
               </li>
             )
           })}
