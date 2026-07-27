@@ -7,6 +7,7 @@ import { download } from '../lib/utils'
 import { applyTheme, currentTheme, THEME_SWATCH, THEMES, type Theme } from '../lib/theme'
 import { applyTextSize, currentTextSize, TEXT_SIZE_LABEL, TEXT_SIZES, type TextSize } from '../lib/textSize'
 import { setWeekendCombined, weekendCombined } from '../lib/calendarPrefs'
+import { GroupManager } from '../components/GroupManager'
 import { Icon } from '../components/Icon'
 import { btnGhost, btnPrimary, card } from '../components/ui'
 
@@ -149,6 +150,19 @@ export function Settings() {
             </span>
           </span>
         </label>
+      </section>
+
+      <section className={`${card} p-4 space-y-3`}>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-300">Groups</h2>
+          <Link to="/groups" className="text-sm text-indigo-400 hover:underline">
+            Open groups page →
+          </Link>
+        </div>
+        <p className="text-sm text-slate-400">
+          Create or delete groups and manage who's in them. Deleting a group never deletes contacts.
+        </p>
+        <GroupManager />
       </section>
 
       <section className={`${card} p-4 space-y-3`}>
