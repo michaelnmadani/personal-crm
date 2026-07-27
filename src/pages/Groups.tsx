@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { GroupType } from '../lib/types'
-import { api, useContacts, useGroup, useGroupMembers, useGroups, useMut, usePhotoUrls } from '../lib/hooks'
+import { api, useContacts, useGroup, useGroupMembers, useMut, usePhotoUrls } from '../lib/hooks'
 import { fullName } from '../lib/utils'
 import { Avatar } from '../components/Avatar'
+import { GroupManager } from '../components/GroupManager'
 import { Icon } from '../components/Icon'
-import { btnDanger, btnPrimary, card, chip, input } from '../components/ui'
+import { btnDanger, btnGhost, btnPrimary, card, chip, input } from '../components/ui'
 
 const GROUP_TYPES: GroupType[] = ['company', 'church', 'sports', 'school', 'club', 'nonprofit', 'family', 'other']
 
@@ -21,18 +22,6 @@ const TYPE_STYLE: Record<GroupType, string> = {
 }
 
 export function Groups() {
-  const { data: groups } = useGroups()
-  const create = useMut(api.createGroup)
-  const [name, setName] = useState('')
-  const [type, setType] = useState<GroupType>('company')
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!name.trim()) return
-    await create.mutateAsync({ name: name.trim(), type })
-    setName('')
-  }
-
   return (
     <div className="space-y-4">
       <header className="flex items-center justify-between">
@@ -42,45 +31,13 @@ export function Groups() {
         </Link>
       </header>
 
-      <form onSubmit={submit} className="flex gap-2">
-        <input
-          className={input}
-          placeholder="New group — church, team, company…"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <select className={`${input} w-auto`} value={type} onChange={(e) => setType(e.target.value as GroupType)}>
-          {GROUP_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-        <button type="submit" className={btnPrimary} disabled={!name.trim() || create.isPending}>
-          <Icon name="plus" className="w-4 h-4" /> Create
-        </button>
-      </form>
-      {create.isError && <p className="text-sm text-red-400">{(create.error as Error).message}</p>}
+      <p className="text-sm text-slate-400">
+        Create, rename or delete groups, and expand one to manage who's in it. Deleting a group never deletes contacts.
+      </p>
 
-      {(groups ?? []).length === 0 ? (
-        <div className={`${card} p-8 text-center text-slate-500 text-sm`}>
-          No groups yet. Create one above, or add a contact to a group from their profile.
-        </div>
-      ) : (
-        <ul className={`${card} divide-y divide-slate-800`}>
-          {(groups ?? []).map((g) => (
-            <li key={g.id}>
-              <Link to={`/groups/${g.id}`} className="flex items-center gap-3 p-3 hover:bg-slate-800/50">
-                <span className={`${chip} ${TYPE_STYLE[g.type]} capitalize`}>{g.type}</span>
-                <span className="font-medium text-slate-100">{g.name}</span>
-                <span className="text-xs text-slate-500 ml-auto">
-                  {g.group_members?.[0]?.count ?? 0} member{(g.group_members?.[0]?.count ?? 0) === 1 ? '' : 's'}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+      <section className={`${card} p-4`}>
+        <GroupManager />
+      </section>
     </div>
   )
 }
@@ -94,9 +51,12 @@ export function GroupDetail() {
   const { data: photos } = usePhotoUrls((members ?? []).map((m) => m.contacts?.photo_url))
   const addMember = useMut(api.addGroupMember)
   const removeMember = useMut(api.removeGroupMember)
+  const updateGroup = useMut(api.updateGroup)
   const deleteGroup = useMut(api.deleteGroup)
   const [adding, setAdding] = useState('')
   const [role, setRole] = useState('')
+  // Null while not renaming; the draft name and type once the pencil is clicked.
+  const [draft, setDraft] = useState<{ name: string; type: GroupType } | null>(null)
 
   if (!group) return <p className="text-slate-500 text-sm">Loading…</p>
 
@@ -117,23 +77,76 @@ export function GroupDetail() {
     navigate('/groups')
   }
 
+  const saveRename = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!draft?.name.trim()) return
+    await updateGroup.mutateAsync({ id: group.id, name: draft.name.trim(), type: draft.type })
+    setDraft(null)
+  }
+
   return (
     <div className="space-y-4">
       <Link to="/groups" className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-slate-200">
         <Icon name="back" className="w-4 h-4" /> Groups
       </Link>
 
-      <header className={`${card} p-4 flex items-center gap-3`}>
-        <span className={`${chip} ${TYPE_STYLE[group.type]} capitalize`}>{group.type}</span>
-        <h1 className="text-xl font-bold">{group.name}</h1>
-        <div className="ml-auto flex gap-2">
-          <Link to={`/network?group=${group.id}`} className="text-sm text-indigo-400 hover:underline self-center">
-            View in network →
-          </Link>
-          <button className={btnDanger} onClick={onDelete} aria-label="Delete group">
-            <Icon name="trash" className="w-4 h-4" />
-          </button>
-        </div>
+      <header className={`${card} p-4`}>
+        {draft ? (
+          <form onSubmit={saveRename} className="flex flex-wrap items-center gap-2">
+            <input
+              className={`${input} flex-1 basis-48 min-w-40`}
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              aria-label="Group name"
+              autoFocus
+            />
+            <select
+              className={`${input} w-auto shrink-0 capitalize`}
+              value={draft.type}
+              onChange={(e) => setDraft({ ...draft, type: e.target.value as GroupType })}
+              aria-label="Group type"
+            >
+              {GROUP_TYPES.map((t) => (
+                <option key={t} value={t} className="capitalize">
+                  {t}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              className={`${btnPrimary} shrink-0`}
+              disabled={!draft.name.trim() || updateGroup.isPending}
+            >
+              <Icon name="check" className="w-4 h-4" /> Save
+            </button>
+            <button type="button" className={`${btnGhost} shrink-0`} onClick={() => setDraft(null)}>
+              Cancel
+            </button>
+          </form>
+        ) : (
+          <div className="flex items-center gap-3">
+            <span className={`${chip} ${TYPE_STYLE[group.type]} capitalize`}>{group.type}</span>
+            <h1 className="text-xl font-bold">{group.name}</h1>
+            <button
+              className="p-1.5 text-slate-500 hover:text-indigo-400"
+              onClick={() => setDraft({ name: group.name, type: group.type })}
+              aria-label="Rename group"
+            >
+              <Icon name="edit" className="w-4 h-4" />
+            </button>
+            <div className="ml-auto flex gap-2">
+              <Link to={`/network?group=${group.id}`} className="text-sm text-indigo-400 hover:underline self-center">
+                View in network →
+              </Link>
+              <button className={btnDanger} onClick={onDelete} aria-label="Delete group">
+                <Icon name="trash" className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+        {updateGroup.isError && (
+          <p className="mt-2 text-sm text-red-400">{(updateGroup.error as Error).message}</p>
+        )}
       </header>
 
       <section className={`${card} p-4`}>

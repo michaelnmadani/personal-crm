@@ -238,23 +238,28 @@ export function GroupManager() {
                   </form>
                 ) : (
                   <div className="flex items-center gap-2 p-2">
+                    {/* Caret manages the group here; the name opens its own page.
+                        A Link can't live inside a button, so they're siblings. */}
                     <button
-                      className="flex flex-1 items-center gap-2 text-left min-w-0"
+                      className="p-1 shrink-0 text-slate-500 hover:text-slate-300"
                       onClick={() => setOpen(expanded ? null : g.id)}
                       aria-expanded={expanded}
+                      aria-label={`${expanded ? 'Collapse' : 'Expand'} group ${g.name}`}
                     >
-                      <Icon
-                        name="back"
-                        className={`w-3.5 h-3.5 shrink-0 text-slate-500 ${expanded ? '-rotate-90' : 'rotate-180'}`}
-                      />
-                      <span className={`${chip} ${TYPE_STYLE[g.type]} text-slate-100 capitalize shrink-0`}>
-                        {g.type}
-                      </span>
-                      <span className="text-sm font-medium text-slate-100 truncate">{g.name}</span>
-                      <span className="ml-auto shrink-0 text-xs text-slate-500">
-                        {count} member{count === 1 ? '' : 's'}
-                      </span>
+                      <Icon name="back" className={`w-3.5 h-3.5 ${expanded ? '-rotate-90' : 'rotate-180'}`} />
                     </button>
+                    <span className={`${chip} ${TYPE_STYLE[g.type]} text-slate-100 capitalize shrink-0`}>
+                      {g.type}
+                    </span>
+                    <Link
+                      to={`/groups/${g.id}`}
+                      className="text-sm font-medium text-slate-100 truncate hover:text-indigo-300"
+                    >
+                      {g.name}
+                    </Link>
+                    <span className="ml-auto shrink-0 text-xs text-slate-500">
+                      {count} member{count === 1 ? '' : 's'}
+                    </span>
                     <button
                       className="p-1.5 text-slate-500 hover:text-indigo-400"
                       onClick={() => startEdit(g)}
