@@ -16,6 +16,45 @@ html {
   font-size: 125%;
 }
 
+/*
+ * Calendar grid text steps up faster than the global scale. Its cells start at
+ * 10-12px, so proportional growth alone still leaves them cramped at the larger
+ * settings — these values are rem, so they compound with the root scaling. The
+ * desktop cell grows too, keeping four wrapped entries visible.
+ */
+:root {
+  --cal-chip: 0.625rem;
+  --cal-day: 0.75rem;
+  --cal-dow: 0.6875rem;
+  --cal-cell: 8rem;
+}
+[data-text='medium'] {
+  --cal-chip: 0.75rem;
+  --cal-day: 0.9375rem;
+  --cal-dow: 0.8125rem;
+  --cal-cell: 9.5rem;
+}
+[data-text='large'] {
+  --cal-chip: 0.8125rem;
+  --cal-day: 1.125rem;
+  --cal-dow: 0.9375rem;
+  --cal-cell: 11rem;
+}
+.cal-chip {
+  font-size: var(--cal-chip);
+}
+.cal-day {
+  font-size: var(--cal-day);
+}
+.cal-dow {
+  font-size: var(--cal-dow);
+}
+@media (min-width: 1024px) {
+  .cal-cell {
+    min-height: var(--cal-cell);
+  }
+}
+
 body {
   @apply bg-slate-950 text-slate-100 antialiased;
 }

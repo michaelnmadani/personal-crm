@@ -115,7 +115,7 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
         </div>
       </header>
 
-      <div className="grid grid-cols-7 gap-1 text-center text-[0.6875rem] font-medium text-slate-400 mb-1">
+      <div className="grid grid-cols-7 gap-1 text-center cal-dow font-medium text-slate-400 mb-1">
         {DOW.map((d) => (
           <div key={d}>{d}</div>
         ))}
@@ -131,7 +131,7 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
             <button
               key={d.toISOString()}
               onClick={() => setPicked(isPicked ? null : d)}
-              className={`min-h-16 lg:min-h-32 flex flex-col items-stretch rounded-lg border p-1 text-left overflow-hidden transition-colors ${
+              className={`min-h-16 cal-cell flex flex-col items-stretch rounded-lg border p-1 text-left overflow-hidden transition-colors ${
                 today
                   ? 'border-indigo-500 bg-indigo-500/30'
                   : isPicked
@@ -139,7 +139,7 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
                     : 'border-slate-800 hover:border-slate-600'
               } ${outside ? 'opacity-40' : ''}`}
             >
-              <span className={`block text-xs font-bold leading-none ${today ? 'text-slate-100' : 'text-slate-300'}`}>
+              <span className={`block cal-day font-bold leading-none ${today ? 'text-slate-100' : 'text-slate-300'}`}>
                 {format(d, 'd')}
               </span>
               {/* Details wrap onto as many lines as they need rather than being
@@ -150,20 +150,20 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
                     key={it.id}
                     onMouseEnter={(e) => showTip(it, e.currentTarget)}
                     onMouseLeave={() => setHover(null)}
-                    className={`block rounded px-1 py-0.5 text-[0.625rem] leading-tight break-words ${STYLE[it.kind].chip}`}
+                    className={`block rounded px-1 py-0.5 cal-chip leading-tight break-words line-clamp-2 ${STYLE[it.kind].chip}`}
                   >
                     {it.initials && <span className="font-bold">{it.initials} </span>}
                     {it.label}
                   </span>
                 ))}
-                {list.length > 4 && <span className="block text-[0.625rem] text-slate-400">+{list.length - 4} more</span>}
+                {list.length > 4 && <span className="block cal-chip text-slate-400">+{list.length - 4} more</span>}
               </span>
             </button>
           )
         })}
       </div>
 
-      <div className="flex flex-wrap gap-3 mt-3 text-[0.6875rem] text-slate-400">
+      <div className="flex flex-wrap gap-3 mt-3 cal-dow text-slate-400">
         {(Object.keys(STYLE) as CalKind[]).map((k) => (
           <span key={k} className="flex items-center gap-1.5">
             <span className={`w-1.5 h-1.5 rounded-full ${STYLE[k].dot}`} />
