@@ -28,7 +28,6 @@ export function Contacts() {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [sort, setSort] = useState<Sort>('name')
-  const [newName, setNewName] = useState('')
   const [view, setView] = useState<View>(() => (localStorage.getItem('contactsView') === 'tiles' ? 'tiles' : 'rows'))
   const [tileSize, setTileSize] = useState<TileSize>(() => {
     const s = localStorage.getItem('contactsTileSize')
@@ -87,11 +86,11 @@ export function Contacts() {
     return [...l].sort((a, b) => Number(b.favorite) - Number(a.favorite) || cmp(a, b))
   }, [contacts, filter, search, sort, tagsByContact])
 
-  const submitQuickAdd = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newName.trim()) return
-    const c = await quickAdd.mutateAsync(newName)
-    setNewName('')
+  /** Create a contact named by whatever is in the search box, then open it. */
+  const addTyped = async () => {
+    if (!search.trim()) return
+    const c = await quickAdd.mutateAsync(search)
+    setSearch('')
     navigate(`/contacts/${c.id}`)
   }
 
@@ -102,29 +101,29 @@ export function Contacts() {
         <span className="text-sm text-slate-500">{contacts?.length ?? 0} people</span>
       </header>
 
-      {/* Quick add — name only, enrich later */}
-      <form onSubmit={submitQuickAdd} className="flex gap-2">
-        <input
-          className={input}
-          placeholder="Quick add: type a name and hit enter…"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-        />
-        <button type="submit" className={btnPrimary} disabled={!newName.trim() || quickAdd.isPending}>
-          <Icon name="plus" className="w-4 h-4" /> Add
-        </button>
-      </form>
-
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-40">
-          <Icon name="search" className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
-          <input
-            className={`${input} pl-9`}
-            placeholder="Search name, company, tag, city…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        {/* One field does both: typing filters as you go and Enter just searches,
+            while Add creates a contact from whatever is typed. */}
+        <form onSubmit={(e) => e.preventDefault()} className="flex items-center gap-2 flex-1 min-w-64">
+          <div className="relative flex-1 min-w-40">
+            <Icon name="search" className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
+            <input
+              className={`${input} pl-9`}
+              placeholder="Search name, company, tag, city — or type a new name and press Add"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <button
+            type="button"
+            className={btnPrimary}
+            onClick={addTyped}
+            disabled={!search.trim() || quickAdd.isPending}
+            title="Add a new contact with this name"
+          >
+            <Icon name="plus" className="w-4 h-4" /> Add
+          </button>
+        </form>
         <select className={`${input} w-auto`} value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
           <option value="name">A–Z</option>
           <option value="recent">Recently contacted</option>
