@@ -22,6 +22,7 @@ export function Settings() {
   const [exporting, setExporting] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [theme, setTheme] = useState<Theme>(currentTheme)
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? ''))
@@ -30,6 +31,29 @@ export function Settings() {
   const pickTheme = (t: Theme) => {
     setTheme(t)
     applyTheme(t)
+  }
+
+  /**
+   * Force the newest build. The app is a PWA, so a plain reload can be served
+   * entirely from the service worker's precache — which is why a normal refresh
+   * sometimes still shows the old version. Tear the worker and its caches down
+   * first, then reload so everything is fetched from the network again.
+   */
+  const hardRefresh = async () => {
+    setRefreshing(true)
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(regs.map((r) => r.unregister()))
+      }
+      if ('caches' in window) {
+        const keys = await caches.keys()
+        await Promise.all(keys.map((k) => caches.delete(k)))
+      }
+    } catch {
+      // Even if clearing fails, still reload — worst case it's a normal refresh.
+    }
+    window.location.reload()
   }
 
   const exportAll = async () => {
@@ -93,6 +117,18 @@ export function Settings() {
             {exporting ? 'Exporting…' : 'Export all data'}
           </button>
         </div>
+      </section>
+
+      <section className={`${card} p-4 space-y-3`}>
+        <h2 className="text-sm font-semibold text-slate-300">App version</h2>
+        <p className="text-sm text-slate-400">
+          Improvements are published automatically, but this device can hold on to a cached copy.
+          Use this to clear the cache and load the newest version — nothing you've saved is affected.
+        </p>
+        <button className={btnGhost} onClick={hardRefresh} disabled={refreshing}>
+          <Icon name="refresh" className="w-4 h-4" />
+          {refreshing ? 'Refreshing…' : 'Force refresh to latest'}
+        </button>
       </section>
 
       <section className={`${card} p-4 space-y-2`}>
