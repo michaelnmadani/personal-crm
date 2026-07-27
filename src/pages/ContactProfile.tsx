@@ -900,8 +900,10 @@ export function ContactProfile() {
                       <div className="mt-1.5 flex gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5">
                         <Icon name="star" className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" filled />
                         <div className="min-w-0">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-500/80">Remember</p>
-                          <p className="text-sm text-amber-100/90 whitespace-pre-wrap">{i.remember}</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Remember</p>
+                          {/* slate-100 is the theme's primary text token — dark on
+                              light themes, light on dark ones — so this stays readable. */}
+                          <p className="text-sm text-slate-100 whitespace-pre-wrap">{i.remember}</p>
                         </div>
                       </div>
                     )}

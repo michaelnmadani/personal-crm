@@ -206,10 +206,10 @@ export function Network() {
 
   useEffect(() => {
     if (!containerRef.current) return
-    // Theme-aware label colour so text is readable in light and dark themes.
-    const cssVar = (name: string, fallback: string) =>
-      getComputedStyle(containerRef.current!).getPropertyValue(name).trim() || fallback
-    const labelColor = cssVar('--color-slate-400', '#94a3b8')
+    // Mid-slate reads on both light and dark canvases. Deliberately a literal
+    // hex: cytoscape's colour parser doesn't understand oklch(), which is what
+    // Tailwind v4's --color-* variables actually contain.
+    const labelColor = '#64748b'
 
     const cy = cytoscape({
       container: containerRef.current,
@@ -436,7 +436,11 @@ export function Network() {
             your contacts.
           </p>
         )}
-        <div ref={containerRef} className="absolute inset-0" />
+        {/* Cytoscape injects `.__________cytoscape_container { position: relative }`
+            at runtime, which lands after Tailwind in the cascade and beats
+            `absolute inset-0` — collapsing the box to zero height and rendering
+            nothing. Size it with explicit width/height so position is irrelevant. */}
+        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
         {(selectedContact || selectedGroup || selectedCompany) && (
           <div className="absolute bottom-3 left-3 right-3 sm:right-auto sm:w-72 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl p-3 z-10">

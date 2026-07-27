@@ -32,13 +32,35 @@ const INTERACTION_SELECT =
 
 // ------------------------------------------------------------------ queries
 
+/**
+ * Page through a table. PostgREST caps every response at its max-rows setting
+ * (1000 on Supabase), so a plain select silently truncates once the CRM grows
+ * past that — the list header and the network graph would both quietly go stale.
+ */
+async function fetchAllContacts(): Promise<ContactOverview[]> {
+  const PAGE = 1000
+  const MAX_PAGES = 50 // safety net: never spin forever if a page repeats
+  const all: ContactOverview[] = []
+  for (let page = 0, from = 0; page < MAX_PAGES; page++, from += PAGE) {
+    const batch = await q<ContactOverview[]>(
+      supabase
+        .from('contacts_overview')
+        .select('*')
+        .eq('archived', false)
+        .order('first_name')
+        .order('id')
+        .range(from, from + PAGE - 1),
+    )
+    all.push(...batch)
+    if (batch.length < PAGE) break
+  }
+  return all
+}
+
 export const useContacts = () =>
   useQuery({
     queryKey: ['contacts'],
-    queryFn: () =>
-      q<ContactOverview[]>(
-        supabase.from('contacts_overview').select('*').eq('archived', false).order('first_name'),
-      ),
+    queryFn: fetchAllContacts,
   })
 
 export const useContact = (id: string) =>
