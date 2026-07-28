@@ -38,6 +38,10 @@ const MAX_PEOPLE = 220
 // Layout geometry. SLOT is the horizontal room one node's label needs, so
 // spacing is driven by label width rather than circle width — that's what stops
 // names from colliding.
+// Baseline connection-line weight. In the focused view a direct association is
+// drawn at twice this and a company or group link at half.
+const EDGE_W = 2.5
+
 const SLOT = 132
 const RING_0 = 165
 const RING_STEP = 104
@@ -592,6 +596,10 @@ export function Network() {
     const hubKeys = new Set<string>()
     let showGroupIds = new Set<string>()
     let note = ''
+    // Whoever is at the centre of the ego view, if that is the mode we're in.
+    // Line weight keys off this: a link touching one of them is a direct
+    // association, anything else is a step removed.
+    const centreIds = new Set<string>()
 
     if (groupFilter) {
       // Everyone in the chosen group.
@@ -609,6 +617,7 @@ export function Network() {
       // connections. Several people can be focused at once, and their networks
       // are unioned so shared contacts appear once.
       const centres = focusPeople.filter((id) => poolIds.has(id))
+      for (const id of centres) centreIds.add(id)
       const myGroups = new Set<string>()
       for (const centre of centres) {
         peopleIds.add(centre)
@@ -654,6 +663,15 @@ export function Network() {
     }
 
     // ---- build cytoscape elements -----------------------------------------
+    /**
+     * Line-weight tier, only while a person is focused — elsewhere every line
+     * keeps its usual weight. Membership of a company or group is the weakest
+     * kind of association, so those spokes are marked 'via' whatever else is
+     * going on.
+     */
+    const tier = (kind: 'direct' | 'secondary' | 'via' = 'via') =>
+      centreIds.size > 0 ? { tier: kind } : {}
+
     const els: cytoscape.ElementDefinition[] = []
     for (const id of peopleIds) {
       const c = byId.get(id)
@@ -676,7 +694,8 @@ export function Network() {
       if (members.length < 2 && !focusCompany) continue
       const hl = hubLabel(info.display, 13)
       els.push({ data: { id: `co-${key}`, label: hl.text, company: 1, hw: hl.w, hh: hl.h } })
-      for (const id of members) els.push({ data: { id: `h-${key}-${id}`, source: id, target: `co-${key}`, hub: 1 } })
+      for (const id of members)
+        els.push({ data: { id: `h-${key}-${id}`, source: id, target: `co-${key}`, hub: 1, ...tier() } })
     }
 
     // Group nodes + memberships.
@@ -686,7 +705,9 @@ export function Network() {
       const gl = hubLabel(g.name, 11)
       els.push({ data: { id: `g-${g.id}`, label: gl.text, gtype: g.type, gcolor: GROUP_COLORS[g.type], hw: gl.w, hh: gl.h } })
       for (const m of members)
-        els.push({ data: { id: `m-${g.id}-${m.contact_id}`, source: m.contact_id, target: `g-${g.id}`, membership: 1 } })
+        els.push({
+          data: { id: `m-${g.id}-${m.contact_id}`, source: m.contact_id, target: `g-${g.id}`, membership: 1, ...tier() },
+        })
     }
 
     // Explicit relationships between shown people. A connection is mutual, so
@@ -698,7 +719,15 @@ export function Network() {
         r.from_contact < r.to_contact ? `${r.from_contact}|${r.to_contact}` : `${r.to_contact}|${r.from_contact}`
       if (drawnPairs.has(pair)) continue
       drawnPairs.add(pair)
-      els.push({ data: { id: `r-${r.id}`, source: r.from_contact, target: r.to_contact, link: 1 } })
+      els.push({
+        data: {
+          id: `r-${r.id}`,
+          source: r.from_contact,
+          target: r.to_contact,
+          link: 1,
+          ...tier(centreIds.has(r.from_contact) || centreIds.has(r.to_contact) ? 'direct' : 'secondary'),
+        },
+      })
     }
 
     return { elements: els, shown: peopleIds.size, total: poolIds.size, note }
@@ -801,8 +830,10 @@ export function Network() {
         {
           selector: 'edge',
           style: {
-            // Every connection is just a link, so every line is drawn the same.
-            width: 2.5,
+            // Every connection is just a link, so every line is drawn the same
+            // — unless a person is focused, where weight shows how close the
+            // association is (see the tier rules below).
+            width: EDGE_W,
             'line-color': edgeColor,
             // Slight curvature so lines that would run along the same path stay
             // individually visible instead of merging into one stroke.
@@ -814,6 +845,16 @@ export function Network() {
         },
         { selector: 'edge[hub]', style: { width: 2, 'line-color': hubColor, opacity: 0.5 } },
         { selector: 'edge[membership]', style: { width: 1, 'line-style': 'dashed', 'line-color': edgeColor, opacity: 0.45 } },
+        // Focused view only: weight says how close the association is. Straight
+        // to the person in the middle is double weight and full strength; person
+        // to person further out is normal; through a company or group is half.
+        // These come after the rules above so they win on the same edges.
+        {
+          selector: 'edge[tier = "direct"]',
+          style: { width: EDGE_W * 2, 'line-color': edgeColor, opacity: 1 },
+        },
+        { selector: 'edge[tier = "secondary"]', style: { width: EDGE_W, opacity: 0.75 } },
+        { selector: 'edge[tier = "via"]', style: { width: EDGE_W / 2, opacity: 0.4 } },
         { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#f59e0b' } },
         // The person you've focused is drawn at double size so they stand out
         // as the centre of the view.
@@ -1196,8 +1237,9 @@ export function Network() {
         Search a name to see just their network, or click a <span className="text-sky-500">company</span> hub to explore
         everyone there. Drag to pan · scroll to zoom. Blue hubs group people by shared employer; dashed lines are group
         memberships; solid lines are direct connections you've added. Focused on someone, the ring nearest them is who
-        they're directly connected to, colleagues sit beyond that and businesses furthest out — double-click anyone to
-        add their network to the view as well. Drag a node anywhere to rearrange the chart — it stays put; drop one
+        they're directly connected to, colleagues sit beyond that and businesses furthest out, and line weight matches:
+        bold straight to them, normal between two other people, thin through a company or group — double-click anyone
+        to add their network to the view as well. Drag a node anywhere to rearrange the chart — it stays put; drop one
         person on top of another to connect them. "Reset layout" puts everything back.
       </p>
     </div>
