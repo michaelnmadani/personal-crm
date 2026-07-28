@@ -12,11 +12,18 @@ type View = 'rows' | 'tiles'
 type TileSize = 'small' | 'medium' | 'large'
 
 const TILE_SIZES: TileSize[] = ['small', 'medium', 'large']
-const TILE: Record<TileSize, { grid: string; avatar: 'md' | 'lg' | 'xl'; pad: string; name: string }> = {
-  small: { grid: 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10', avatar: 'md', pad: 'p-3', name: 'text-sm' },
-  medium: { grid: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6', avatar: 'lg', pad: 'p-4', name: 'text-base' },
-  large: { grid: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4', avatar: 'xl', pad: 'p-5', name: 'text-lg' },
+const TILE: Record<TileSize, { grid: string; avatar: 'lg' | 'xl' | '2xl'; pad: string; name: string }> = {
+  small: { grid: 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10', avatar: 'lg', pad: 'p-3', name: 'text-sm' },
+  medium: { grid: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6', avatar: 'xl', pad: 'p-4', name: 'text-base' },
+  large: { grid: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4', avatar: '2xl', pad: 'p-5', name: 'text-lg' },
 }
+
+/**
+ * Importing a LinkedIn export tags every contact it brings in, so that one tag
+ * ends up on nearly every tile and says nothing. Keep it off the tiles; it's
+ * still on the contact itself and still searchable.
+ */
+const isBulkImportTag = (name: string) => name.trim().toLowerCase() === 'linkedin'
 
 export function Contacts() {
   const { data: contacts, isLoading } = useContacts()
@@ -91,6 +98,9 @@ export function Contacts() {
     // Favourites always float to the top, then the chosen sort within each group.
     return [...l].sort((a, b) => Number(b.favorite) - Number(a.favorite) || cmp(a, b))
   }, [contacts, filter, search, sort, tagsByContact])
+
+  /** Tags worth showing on a tile — everything except the bulk-import marker. */
+  const tileTags = (id: string) => (tagsByContact.get(id) ?? []).filter((t) => !isBulkImportTag(t.name))
 
   /** Create a contact named by whatever is in the search box, then open it. */
   const addTyped = async () => {
@@ -217,9 +227,9 @@ export function Contacts() {
                     {[c.title, c.company].filter(Boolean).join(' @ ') || c.location || c.summary || '—'}
                   </p>
                 )}
-                {tileSize !== 'small' && (tagsByContact.get(c.id) ?? []).length > 0 && (
+                {tileSize !== 'small' && tileTags(c.id).length > 0 && (
                   <div className="flex flex-wrap gap-1 justify-center">
-                    {(tagsByContact.get(c.id) ?? []).slice(0, 3).map((t) => (
+                    {tileTags(c.id).slice(0, 3).map((t) => (
                       <span key={t.id} className={chip} style={{ background: `${t.color}26`, color: t.color }}>
                         {t.name}
                       </span>
