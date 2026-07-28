@@ -46,6 +46,9 @@ const SLOT = 132
 const RING_0 = 165
 const RING_STEP = 104
 const CLUSTER_GAP = 90
+// Clear air between one hop's band of circles and the next, so the bands read
+// as separate rather than as one dense field.
+const BAND_GAP = 70
 
 type Pos = { x: number; y: number }
 
@@ -158,14 +161,21 @@ type ElData = {
 /**
  * Ego layout, used whenever the chart is focused on one or more people.
  *
- * Distance carries meaning here. The focused people sit at the centre and the
- * rings around them are hops along the connections you've drawn: first the
- * people connected straight to the middle, then friends-of-friends, and so on.
+ * Distance carries meaning here. The focused people sit at the centre, ringed
+ * by everyone they're directly connected to; beyond a clear gap comes the next
+ * band, the people connected to *those* people, and so on outward.
+ *
+ * A band is one circle when its people fit on one, and two or three tightly
+ * spaced circles when there are too many — a hundred direct connections belong
+ * in a few layers around the centre, not on one enormous ring. Within a band,
+ * everyone is placed as near as an even circle allows to whoever they're
+ * connected to on the band inside, which keeps the joining lines short.
  *
  * Anyone the chain never reaches is on the chart only because they share an
- * employer or a group. Those people don't belong on a ring — being two rings
- * out would imply a closeness that isn't there — so they cluster around their
- * own hub pill instead, the way the unfocused chart draws every company.
+ * employer or a group. Those people don't belong in a band — being one out
+ * would imply a closeness that isn't there — so the hub pills sit outside every
+ * band and those contacts cluster around their own pill instead, the way the
+ * unfocused chart draws every company.
  */
 function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): Record<string, Pos> {
   const data = (e: cytoscape.ElementDefinition) => e.data as unknown as ElData
@@ -244,22 +254,70 @@ function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): R
   const angles = new Map<string, number>()
   /** Radius a ring of n nodes needs before their labels start to touch. */
   const fits = (n: number) => (n * SLOT) / (2 * Math.PI)
+  /** How many nodes a ring of this radius can hold without labels colliding. */
+  const capacity = (r: number) => Math.max(4, Math.floor((2 * Math.PI * r) / SLOT))
+
   /**
-   * Spread ids evenly round a ring centred on the origin. Each ring is turned
-   * by a golden angle from the one inside it: sparse rings would otherwise all
-   * start at twelve o'clock and stack their nodes into one vertical line.
+   * Lay one hop level out as a band: a single circle when it fits, otherwise
+   * two or three concentric circles close together, with consecutive nodes
+   * alternating between them so each circle gets the room it needs.
+   *
+   * `ids` arrive in the angular order they should appear in. `want` optionally
+   * gives each one the angle it would rather sit at — the whole band is then
+   * turned so the slots land as near those angles as possible, which is what
+   * keeps a person beside the contact they're connected to and the joining
+   * line short.
    */
-  const GOLDEN = Math.PI * (3 - Math.sqrt(5))
-  const placeRing = (ids: string[], from: number, turn = 0) => {
-    if (ids.length === 0) return from
-    const r = Math.max(from + RING_STEP, fits(ids.length))
-    const step = (2 * Math.PI) / ids.length
+  const placeBand = (ids: string[], from: number, want?: Map<string, number>) => {
+    const n = ids.length
+    if (n === 0) return from
+    let base = Math.max(from, RING_0 / 2)
+    let layers = Math.max(1, Math.ceil(n / capacity(base)))
+    // Three circles deep is plenty; past that, push the whole band outward
+    // rather than stacking more layers into it.
+    layers = Math.min(layers, 3)
+    while (capacity(base) * layers < n) base += RING_STEP / 2
+
+    const step = (2 * Math.PI) / n
+    let turn = -Math.PI / 2
+    if (want) {
+      // Circular mean of "wanted angle minus slot angle" is the single rotation
+      // that puts the band closest to everyone's preference at once.
+      let sx = 0
+      let sy = 0
+      ids.forEach((id, i) => {
+        const a = want.get(id)
+        if (a === undefined) return
+        sx += Math.cos(a - i * step)
+        sy += Math.sin(a - i * step)
+      })
+      if (sx !== 0 || sy !== 0) turn = Math.atan2(sy, sx)
+    }
+
     ids.forEach((id, i) => {
-      const a = i * step - Math.PI / 2 + turn * GOLDEN
+      const a = i * step + turn
+      const r = base + (i % layers) * RING_STEP
       angles.set(id, a)
       positions[id] = { x: r * Math.cos(a), y: r * Math.sin(a) }
     })
-    return r
+    return base + (layers - 1) * RING_STEP
+  }
+
+  /** Where a person would sit if they could stand next to whoever they know. */
+  const wantedAngle = (ids: string[]) => {
+    const m = new Map<string, number>()
+    for (const id of ids) {
+      let sx = 0
+      let sy = 0
+      for (const nb of adj.get(id) ?? []) {
+        const a = angles.get(nb)
+        if (a === undefined) continue
+        sx += Math.cos(a)
+        sy += Math.sin(a)
+      }
+      if (sx !== 0 || sy !== 0) m.set(id, Math.atan2(sy, sx))
+    }
+    return m
   }
 
   // Centre: one person sits at the origin, several share a small huddle.
@@ -267,13 +325,26 @@ function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): R
   if (focus.length === 1) {
     positions[focus[0]] = { x: 0, y: 0 }
   } else {
-    edge = placeRing(focus, 0)
+    edge = placeBand(byHub(focus), fits(focus.length))
   }
 
-  // One ring per hop outward.
-  edge = Math.max(edge, RING_0 - RING_STEP)
-  for (const [i, hop] of [...ringsByHop.keys()].sort((a, b) => a - b).entries()) {
-    edge = Math.max(placeRing(byHub(ringsByHop.get(hop)!), edge, i + 1), edge)
+  // A band per hop outward, each separated from the last by a clear gap so the
+  // rings read as distinct bands rather than one dense field of circles.
+  let from = Math.max(edge + RING_STEP, RING_0)
+  for (const hop of [...ringsByHop.keys()].sort((a, b) => a - b)) {
+    const ids = ringsByHop.get(hop)!
+    if (hop === 1) {
+      // Nothing to sit beside yet — group them by employer instead.
+      edge = placeBand(byHub(ids), from)
+    } else {
+      // Sort by the angle each would prefer, then hand out slots in that order:
+      // everyone ends up as near their own contact as an even circle allows.
+      const want = wantedAngle(ids)
+      const norm = (a: number) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+      const ordered = [...ids].sort((a, b) => norm(want.get(a) ?? 0) - norm(want.get(b) ?? 0))
+      edge = placeBand(ordered, from, want)
+    }
+    from = edge + RING_STEP + BAND_GAP
   }
 
   // Hubs last, outside everyone, each aimed at the mean angle of its members
@@ -285,7 +356,7 @@ function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): R
       return n === 0 ? 0 : Math.max(RING_0 * 0.75, fits(n))
     }
     const widest = Math.max(0, ...shownHubs.map(orbitR))
-    const rHub = edge + RING_STEP * 1.4 + widest
+    const rHub = edge + RING_STEP + BAND_GAP + widest
     const mean = (h: string) => {
       let sx = 0
       let sy = 0
@@ -327,8 +398,8 @@ function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): R
   }
 
   // Anyone with neither a chain nor a hub (shouldn't normally happen) goes in a
-  // ring of its own rather than piling up on the origin.
-  if (homeless.length > 0) placeRing(homeless, edge)
+  // band of their own rather than piling up on the origin.
+  if (homeless.length > 0) placeBand(byHub(homeless), edge + RING_STEP + BAND_GAP)
 
   return positions
 }
@@ -1302,8 +1373,8 @@ export function Network() {
         Search a name to see just their network, or click a <span className="text-sky-500">company</span> hub to explore
         everyone there. Drag to pan · scroll to zoom. Blue hubs group people by shared employer; dashed lines are group
         memberships; solid lines are direct connections you've added. Focused on someone, the ring nearest them is who
-        they're directly connected to, friends-of-friends sit beyond that, and anyone linked only by a shared company or
-        group clusters around that pill instead. Line weight matches: bold straight to them, normal between two other
+        they're directly connected to — several circles deep if there are a lot — then a gap, then the people connected to
+        those. Anyone linked only by a shared company or group clusters around that pill, outside every band. Line weight matches: bold straight to them, normal between two other
         people, thin through a company or group — double-click anyone to add their network to the view as well. Drag a node anywhere to rearrange the chart — it stays put; drop one
         person on top of another to connect them. "Reset layout" puts everything back.
       </p>
