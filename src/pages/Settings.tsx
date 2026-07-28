@@ -198,6 +198,19 @@ export function Settings() {
 
       <section className={`${card} p-4 space-y-2`}>
         <h2 className="text-sm font-semibold text-slate-300">This device</h2>
+        {/* Dates come from this device's clock, so when a date looks wrong this
+            is the first thing to check. */}
+        <p className="text-sm text-slate-400">
+          <strong>Date &amp; time zone:</strong> {format(new Date(), 'EEEE, d MMMM yyyy, h:mm a')} ·{' '}
+          {Intl.DateTimeFormat().resolvedOptions().timeZone} (UTC
+          {new Date().getTimezoneOffset() <= 0 ? '+' : '−'}
+          {String(Math.floor(Math.abs(new Date().getTimezoneOffset()) / 60)).padStart(2, '0')}:
+          {String(Math.abs(new Date().getTimezoneOffset()) % 60).padStart(2, '0')})
+          <br />
+          <span className="text-slate-500">
+            The calendar follows this. If it's wrong, it's coming from the device's own clock settings.
+          </span>
+        </p>
         {window.desktop?.isDesktop ? (
           <p className="text-sm text-slate-400">
             Running as the desktop app (Electron {window.desktop.electron}). It updates itself

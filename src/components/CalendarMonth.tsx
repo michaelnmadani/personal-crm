@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   addMonths,
@@ -13,6 +13,7 @@ import {
   startOfWeek,
 } from 'date-fns'
 import { weekendCombined } from '../lib/calendarPrefs'
+import { useToday } from '../lib/useToday'
 import { Icon } from './Icon'
 import { card } from './ui'
 
@@ -53,7 +54,18 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
   const [month, setMonth] = useState(() => startOfMonth(new Date()))
   const [picked, setPicked] = useState<Date | null>(null)
   const [hover, setHover] = useState<{ item: CalItem; top: number; left: number } | null>(null)
+  // True once the reader has paged away from the current month, so rolling over
+  // midnight doesn't yank them back while they're looking at something else.
+  const [browsing, setBrowsing] = useState(false)
   const combined = weekendCombined()
+
+  // Redraw when the device's day changes: without this the highlighted day, and
+  // the month itself around a month boundary, keep showing whatever they were
+  // when the page was opened.
+  const today = useToday()
+  useEffect(() => {
+    if (!browsing) setMonth(startOfMonth(new Date()))
+  }, [today, browsing])
 
   const gridStart = startOfWeek(startOfMonth(month), { weekStartsOn: 1 })
   const gridEnd = endOfWeek(endOfMonth(month), { weekStartsOn: 1 })
@@ -142,7 +154,10 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
         <div className="flex items-center gap-1">
           <button
             className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800"
-            onClick={() => setMonth(addMonths(month, -1))}
+            onClick={() => {
+              setMonth(addMonths(month, -1))
+              setBrowsing(true)
+            }}
             aria-label="Previous month"
           >
             <Icon name="back" className="w-4 h-4" />
@@ -152,13 +167,17 @@ export function CalendarMonth({ itemsFor }: { itemsFor: (start: Date, end: Date)
             onClick={() => {
               setMonth(startOfMonth(new Date()))
               setPicked(null)
+              setBrowsing(false)
             }}
           >
             Today
           </button>
           <button
             className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800 rotate-180"
-            onClick={() => setMonth(addMonths(month, 1))}
+            onClick={() => {
+              setMonth(addMonths(month, 1))
+              setBrowsing(true)
+            }}
             aria-label="Next month"
           >
             <Icon name="back" className="w-4 h-4" />

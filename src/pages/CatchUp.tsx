@@ -4,6 +4,7 @@ import { format } from 'date-fns'
 import type { ContactOverview } from '../lib/types'
 import { useAllFamily, useCalendarInteractions, useContacts, useInteractions, useOpenReminders } from '../lib/hooks'
 import { ago, daysUntil, effectiveDue, fullName, initials, isDueNow, kitDueInDays, nextOccurrence } from '../lib/utils'
+import { useToday } from '../lib/useToday'
 import { Avatar } from '../components/Avatar'
 import { Icon, KIND_ICON } from '../components/Icon'
 import { ReminderItem } from '../components/ReminderItem'
@@ -75,6 +76,11 @@ export function CatchUp() {
     .sort((a, b) => a.last - b.last)
     .slice(0, 5)
 
+  // Reading the device's day here keeps the header, and everything below that
+  // compares against "now", honest on a page that's been left open.
+  useToday()
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+
   // Everything that lands on a calendar day, for whatever month is on screen.
   // Birthdays recur, so they're projected into the year(s) the grid spans.
   const itemsFor = useCallback(
@@ -132,7 +138,9 @@ export function CatchUp() {
     <div className="space-y-4">
       <header>
         <h1 className="text-2xl font-bold">Catch Up</h1>
-        <p className="text-sm text-slate-500">{format(new Date(), 'EEEE, MMMM d')}</p>
+        <p className="text-sm text-slate-500" title={`Device time zone: ${tz}`}>
+          {format(new Date(), 'EEEE, MMMM d')}
+        </p>
       </header>
 
       {/* Side by side only from xl up, where the calendar's 26rem minimum and
