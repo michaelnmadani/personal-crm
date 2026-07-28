@@ -364,20 +364,21 @@ function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): R
   if (shownHubs.length > 0) {
     /**
      * Plan a cluster of n people packed against a pill and fanned away from the
-     * chart's centre. Tries one, two and three layers and keeps whichever
-     * reaches least far out — a handful of people make a shallow arc, a crowd
-     * stacks into layers rather than ballooning into a wide ring.
+     * chart's centre: fill the arc closest to the pill, then the next one out,
+     * and so on. Filling by what each arc holds is what keeps the first row
+     * hard against the pill however many people there are — sizing one arc to
+     * take everybody would push even the nearest of them far away.
      */
     const orbitPlan = (n: number) => {
-      if (n === 0) return { layers: 1, base: 0, outer: 0, step: 0 }
-      let best = { layers: 1, base: 0, outer: Infinity }
-      for (const layers of [1, 2, 3]) {
-        // Widest the arc allows: same-layer neighbours are `layers` slots apart.
-        const base = Math.max(ORBIT_0, (ORBIT_SLOT * Math.max(n - 1, 1)) / (layers * ORBIT_ARC))
-        const outer = base + (layers - 1) * ORBIT_STEP
-        if (outer < best.outer) best = { layers, base, outer }
+      const rings: { r: number; count: number }[] = []
+      let left = n
+      for (let j = 0; left > 0; j++) {
+        const r = ORBIT_0 + j * ORBIT_STEP
+        const take = Math.min(Math.max(3, Math.floor((ORBIT_ARC * r) / ORBIT_SLOT)), left)
+        rings.push({ r, count: take })
+        left -= take
       }
-      return { ...best, step: ORBIT_ARC / Math.max(n - 1, 1) }
+      return { rings, outer: rings.length > 0 ? rings[rings.length - 1].r : 0 }
     }
     const plans = new Map(shownHubs.map((h) => [h, orbitPlan((orbiters.get(h) ?? []).length)]))
     const widest = Math.max(0, ...[...plans.values()].map((p) => p.outer))
@@ -418,13 +419,16 @@ function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): R
       positions[h] = { x: cx, y: cy }
       const crowd = byHub(orbiters.get(h) ?? [])
       const plan = plans.get(h)!
-      crowd.forEach((id, i) => {
-        // Centre the fan on the outward direction and alternate layers, so
-        // consecutive people sit at different depths and pack in closely.
-        const t = a + (i - (crowd.length - 1) / 2) * plan.step
-        const r = plan.base + (i % plan.layers) * ORBIT_STEP
-        positions[id] = { x: cx + r * Math.cos(t), y: cy + r * Math.sin(t) }
-      })
+      let i = 0
+      for (const [ri, ring] of plan.rings.entries()) {
+        const step = ORBIT_ARC / Math.max(ring.count, 1)
+        // Half-step offset on alternate rows so names don't line up radially.
+        const phase = ri % 2 ? step / 2 : 0
+        for (let k = 0; k < ring.count; k++, i++) {
+          const t = a + (k - (ring.count - 1) / 2) * step + phase
+          positions[crowd[i]] = { x: cx + ring.r * Math.cos(t), y: cy + ring.r * Math.sin(t) }
+        }
+      }
     }
   }
 
