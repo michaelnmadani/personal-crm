@@ -49,6 +49,17 @@ const CLUSTER_GAP = 90
 // Clear air between one hop's band of circles and the next, so the bands read
 // as separate rather than as one dense field.
 const BAND_GAP = 70
+// A hub pill sits this far beyond the outermost band. Its own people fan out
+// from the pill rather than ringing it, so the name can stay close in.
+const HUB_GAP = 130
+// Geometry for those clusters. The slot is tighter than SLOT because these
+// labels sit at the edge of the chart with nothing beyond them to collide with.
+const ORBIT_SLOT = 92
+const ORBIT_0 = 100
+const ORBIT_STEP = 70
+// A touch under half a turn. Wider than this and the ends of the fan swing back
+// towards the bands, close enough to read as belonging to them.
+const ORBIT_ARC = Math.PI * 0.95
 
 type Pos = { x: number; y: number }
 
@@ -347,16 +358,33 @@ function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): R
     from = edge + RING_STEP + BAND_GAP
   }
 
-  // Hubs last, outside everyone, each aimed at the mean angle of its members
-  // and carrying its own group-only people in a ring around it.
+  // Hubs last, just outside the final band, each aimed at the mean angle of its
+  // members and carrying its own group-only people in a tight fan beside it.
   const shownHubs = hubIds.filter((h) => (hubSize.get(h) ?? 0) > 0)
   if (shownHubs.length > 0) {
-    const orbitR = (h: string) => {
-      const n = (orbiters.get(h) ?? []).length
-      return n === 0 ? 0 : Math.max(RING_0 * 0.75, fits(n))
+    /**
+     * Plan a cluster of n people packed against a pill and fanned away from the
+     * chart's centre. Tries one, two and three layers and keeps whichever
+     * reaches least far out — a handful of people make a shallow arc, a crowd
+     * stacks into layers rather than ballooning into a wide ring.
+     */
+    const orbitPlan = (n: number) => {
+      if (n === 0) return { layers: 1, base: 0, outer: 0, step: 0 }
+      let best = { layers: 1, base: 0, outer: Infinity }
+      for (const layers of [1, 2, 3]) {
+        // Widest the arc allows: same-layer neighbours are `layers` slots apart.
+        const base = Math.max(ORBIT_0, (ORBIT_SLOT * Math.max(n - 1, 1)) / (layers * ORBIT_ARC))
+        const outer = base + (layers - 1) * ORBIT_STEP
+        if (outer < best.outer) best = { layers, base, outer }
+      }
+      return { ...best, step: ORBIT_ARC / Math.max(n - 1, 1) }
     }
-    const widest = Math.max(0, ...shownHubs.map(orbitR))
-    const rHub = edge + RING_STEP + BAND_GAP + widest
+    const plans = new Map(shownHubs.map((h) => [h, orbitPlan((orbiters.get(h) ?? []).length)]))
+    const widest = Math.max(0, ...[...plans.values()].map((p) => p.outer))
+    // The pill itself sits just clear of the last band: its people fan outward
+    // from there, so the name stays close to the network it belongs to.
+    const rHub = edge + HUB_GAP
+
     const mean = (h: string) => {
       let sx = 0
       let sy = 0
@@ -372,8 +400,11 @@ function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): R
     const norm = (a: number) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
     const placed = shownHubs.map((h) => ({ h, a: norm(mean(h)) })).sort((x, y) => x.a - y.a)
     // Two hubs whose members sit in the same direction would land on top of each
-    // other, so keep an arc between them wide enough for their orbits too.
-    const minSep = Math.min((2 * Math.PI) / placed.length, (2 * widest + SLOT * 1.4) / rHub)
+    // other, so keep an arc between them wide enough for their clusters too.
+    const minSep = Math.min(
+      (2 * Math.PI) / placed.length,
+      2 * Math.atan(widest / Math.max(rHub, 1)) + SLOT / Math.max(rHub, 1),
+    )
     for (let i = 1; i < placed.length; i++) {
       if (placed[i].a - placed[i - 1].a < minSep) placed[i].a = placed[i - 1].a + minSep
     }
@@ -386,12 +417,12 @@ function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): R
       const cy = rHub * Math.sin(a)
       positions[h] = { x: cx, y: cy }
       const crowd = byHub(orbiters.get(h) ?? [])
-      const r = orbitR(h)
-      const step = (2 * Math.PI) / Math.max(crowd.length, 1)
-      // Start the orbit facing away from the centre, so the pill's own label
-      // and the spokes back to the middle stay clear of its people.
+      const plan = plans.get(h)!
       crowd.forEach((id, i) => {
-        const t = a + i * step
+        // Centre the fan on the outward direction and alternate layers, so
+        // consecutive people sit at different depths and pack in closely.
+        const t = a + (i - (crowd.length - 1) / 2) * plan.step
+        const r = plan.base + (i % plan.layers) * ORBIT_STEP
         positions[id] = { x: cx + r * Math.cos(t), y: cy + r * Math.sin(t) }
       })
     }
