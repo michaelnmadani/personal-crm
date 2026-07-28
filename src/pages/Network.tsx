@@ -141,6 +141,129 @@ function reduceCrossings(
   }
 }
 
+type ElData = {
+  id: string
+  source?: string
+  target?: string
+  company?: number
+  gtype?: string
+  hub?: number
+  membership?: number
+}
+
+/**
+ * Ego layout, used whenever the chart is focused on one or more people.
+ *
+ * Distance carries meaning here: the focused people sit at the centre, the
+ * people they are directly connected to form the first ring, everyone else who
+ * merely shares an employer or a group sits beyond them, and the business and
+ * group hubs are pushed out furthest of all. Each hub is placed at the average
+ * angle of its own members so its spokes stay short.
+ */
+function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): Record<string, Pos> {
+  const data = (e: cytoscape.ElementDefinition) => e.data as unknown as ElData
+
+  const nodes = els.filter((e) => !data(e).source)
+  const isHub = (e: cytoscape.ElementDefinition) => !!(data(e).company || data(e).gtype)
+  const hubIds = nodes.filter(isHub).map((e) => data(e).id)
+  const peopleIds = nodes.filter((e) => !isHub(e)).map((e) => data(e).id)
+
+  const present = new Set(peopleIds)
+  const focus = focusIds.filter((id) => present.has(id))
+  if (focus.length === 0) return {}
+  const focusSet = new Set(focus)
+
+  // Ring 1: an explicit connection to someone in the middle. That is the
+  // "direct association" — sharing an employer is not the same thing.
+  const direct = new Set<string>()
+  for (const e of els) {
+    const d = data(e)
+    if (!d.source || !d.target || d.hub || d.membership) continue
+    if (focusSet.has(d.source) && !focusSet.has(d.target)) direct.add(d.target)
+    if (focusSet.has(d.target) && !focusSet.has(d.source)) direct.add(d.source)
+  }
+
+  // Which hub claims each person, so ring members can be grouped by employer
+  // and a hub can be parked near its own people.
+  const hubOf = new Map<string, string>()
+  const hubSize = new Map<string, number>(hubIds.map((h) => [h, 0]))
+  for (const e of els) {
+    const d = data(e)
+    if (!d.source || !d.target || (!d.hub && !d.membership)) continue
+    if (!hubOf.has(d.source) && hubSize.has(d.target)) {
+      hubOf.set(d.source, d.target)
+      hubSize.set(d.target, (hubSize.get(d.target) ?? 0) + 1)
+    }
+  }
+  // Bigger hubs first, so the same employer keeps the same slice of the circle
+  // in both rings and the two line up radially.
+  const hubOrder = new Map([...hubIds].sort((a, b) => (hubSize.get(b) ?? 0) - (hubSize.get(a) ?? 0)).map((h, i) => [h, i]))
+  const byHub = (ids: string[]) =>
+    [...ids].sort((a, b) => (hubOrder.get(hubOf.get(a) ?? '') ?? 99) - (hubOrder.get(hubOf.get(b) ?? '') ?? 99))
+
+  const others = byHub(peopleIds.filter((id) => !focusSet.has(id) && !direct.has(id)))
+  const ring1 = byHub([...direct])
+
+  const positions: Record<string, Pos> = {}
+  const angles = new Map<string, number>()
+  /** Spread ids evenly round a ring, wide enough that their labels can't touch. */
+  const placeRing = (ids: string[], from: number) => {
+    if (ids.length === 0) return from
+    const r = Math.max(from + RING_STEP, (ids.length * SLOT) / (2 * Math.PI))
+    const step = (2 * Math.PI) / ids.length
+    ids.forEach((id, i) => {
+      const a = i * step - Math.PI / 2
+      angles.set(id, a)
+      positions[id] = { x: r * Math.cos(a), y: r * Math.sin(a) }
+    })
+    return r
+  }
+
+  // Centre: one person sits at the origin, several share a small huddle.
+  let edge = 0
+  if (focus.length === 1) {
+    positions[focus[0]] = { x: 0, y: 0 }
+  } else {
+    edge = placeRing(focus, 0)
+  }
+
+  edge = Math.max(placeRing(ring1, Math.max(edge, RING_0 - RING_STEP)), edge)
+  edge = Math.max(placeRing(others, edge), edge)
+
+  // Hubs last, outside everyone, each aimed at the mean angle of its members.
+  const shownHubs = hubIds.filter((h) => (hubSize.get(h) ?? 0) > 0)
+  if (shownHubs.length > 0) {
+    const rHub = edge + RING_STEP * 1.6
+    const mean = (h: string) => {
+      let sx = 0
+      let sy = 0
+      for (const [id, hub] of hubOf) {
+        if (hub !== h) continue
+        const a = angles.get(id)
+        if (a === undefined) continue
+        sx += Math.cos(a)
+        sy += Math.sin(a)
+      }
+      return sx === 0 && sy === 0 ? -Math.PI / 2 : Math.atan2(sy, sx)
+    }
+    const norm = (a: number) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+    const placed = shownHubs.map((h) => ({ h, a: norm(mean(h)) })).sort((x, y) => x.a - y.a)
+    // Two hubs whose members sit in the same direction would land on top of each
+    // other, so keep a minimum arc between them.
+    const minSep = Math.min((2 * Math.PI) / placed.length, (SLOT * 1.4) / rHub)
+    for (let i = 1; i < placed.length; i++) {
+      if (placed[i].a - placed[i - 1].a < minSep) placed[i].a = placed[i - 1].a + minSep
+    }
+    // If pushing them apart wrapped past the start, give up and space them evenly.
+    if (placed.length > 1 && placed[placed.length - 1].a - placed[0].a > 2 * Math.PI - minSep) {
+      placed.forEach((p, i) => (p.a = (i * 2 * Math.PI) / placed.length))
+    }
+    for (const { h, a } of placed) positions[h] = { x: rHub * Math.cos(a), y: rHub * Math.sin(a) }
+  }
+
+  return positions
+}
+
 /**
  * Deterministic hub-and-spoke layout: each company/group hub gets its members
  * on concentric rings sized so every node owns a SLOT-wide arc, then clusters
@@ -379,7 +502,9 @@ export function Network() {
   const [search, setSearch] = useState('')
   const [kindFilter, setKindFilter] = useState<'all' | 'business' | 'personal'>('all')
   const [groupFilter, setGroupFilter] = useState(params.get('group') ?? '')
-  const [focusPerson, setFocusPerson] = useState<string | null>(params.get('focus'))
+  // Focus is a set: double-tapping another person adds their network to the
+  // view rather than replacing it.
+  const [focusPeople, setFocusPeople] = useState<string[]>(() => (params.get('focus') ? [params.get('focus')!] : []))
   const [focusCompany, setFocusCompany] = useState<string | null>(null)
   // Drag one person onto another to propose a connection.
   const [pendingLink, setPendingLink] = useState<{ from: string; to: string } | null>(null)
@@ -479,23 +604,30 @@ export function Network() {
       peopleIds = new Set(members.slice(0, MAX_PEOPLE))
       hubKeys.add(focusCompany)
       if (members.length > peopleIds.size) note = `Showing ${peopleIds.size} of ${members.length} at this company.`
-    } else if (focusPerson && poolIds.has(focusPerson)) {
-      // Ego network: the person, their colleagues, group-mates and connections.
-      peopleIds.add(focusPerson)
-      for (const key of companiesOf.get(focusPerson) ?? []) {
-        hubKeys.add(key)
-        for (const id of companyMembers(key)) peopleIds.add(id)
+    } else if (focusPeople.some((id) => poolIds.has(id))) {
+      // Ego network: each focused person, their colleagues, group-mates and
+      // connections. Several people can be focused at once, and their networks
+      // are unioned so shared contacts appear once.
+      const centres = focusPeople.filter((id) => poolIds.has(id))
+      const myGroups = new Set<string>()
+      for (const centre of centres) {
+        peopleIds.add(centre)
+        for (const key of companiesOf.get(centre) ?? []) {
+          hubKeys.add(key)
+          for (const id of companyMembers(key)) peopleIds.add(id)
+        }
+        for (const m of memberships ?? []) if (m.contact_id === centre) myGroups.add(m.group_id)
       }
-      const myGroups = (memberships ?? []).filter((m) => m.contact_id === focusPerson).map((m) => m.group_id)
-      showGroupIds = new Set(myGroups)
+      showGroupIds = myGroups
       for (const m of memberships ?? [])
-        if (myGroups.includes(m.group_id) && poolIds.has(m.contact_id)) peopleIds.add(m.contact_id)
+        if (myGroups.has(m.group_id) && poolIds.has(m.contact_id)) peopleIds.add(m.contact_id)
       for (const r of rels ?? []) {
-        if (r.from_contact === focusPerson && poolIds.has(r.to_contact)) peopleIds.add(r.to_contact)
-        if (r.to_contact === focusPerson && poolIds.has(r.from_contact)) peopleIds.add(r.from_contact)
+        if (centres.includes(r.from_contact) && poolIds.has(r.to_contact)) peopleIds.add(r.to_contact)
+        if (centres.includes(r.to_contact) && poolIds.has(r.from_contact)) peopleIds.add(r.from_contact)
       }
-      if (peopleIds.size > MAX_PEOPLE + 1) {
-        const trimmed = new Set([focusPerson, ...[...peopleIds].filter((id) => id !== focusPerson).slice(0, MAX_PEOPLE)])
+      if (peopleIds.size > MAX_PEOPLE + centres.length) {
+        const rest = [...peopleIds].filter((id) => !centres.includes(id))
+        const trimmed = new Set([...centres, ...rest.slice(0, MAX_PEOPLE)])
         note = `Showing ${trimmed.size} of ${peopleIds.size} connections — click a company to see more.`
         peopleIds = trimmed
       }
@@ -570,7 +702,7 @@ export function Network() {
     }
 
     return { elements: els, shown: peopleIds.size, total: poolIds.size, note }
-  }, [contacts, rels, groups, memberships, photos, kindFilter, groupFilter, focusPerson, focusCompany, companyIndex, companiesOf, byId])
+  }, [contacts, rels, groups, memberships, photos, kindFilter, groupFilter, focusPeople, focusCompany, companyIndex, companiesOf, byId])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -587,7 +719,13 @@ export function Network() {
     const edgeColor = v('--graph-edge', '#64748b')
     // Computed layout first, then anything the user has dragged into place —
     // a saved position is a deliberate override and outranks the calculation.
-    const positions = { ...computePositions(elements), ...movedRef.current }
+    // Focused on people? Use the ego layout, where distance from the centre
+    // means something. Otherwise pack clusters across the canvas as usual.
+    const base = focusPeople.length > 0 ? egoPositions(elements, focusPeople) : {}
+    const positions = {
+      ...(Object.keys(base).length > 0 ? base : computePositions(elements)),
+      ...movedRef.current,
+    }
 
     const cy = cytoscape({
       container: containerRef.current,
@@ -724,7 +862,7 @@ export function Network() {
     syncLabels()
     cy.on('zoom', syncLabels)
 
-    if (focusPerson) cy.getElementById(focusPerson).addClass('focused')
+    for (const id of focusPeople) cy.getElementById(id).addClass('focused')
 
     // --- drag one person onto another to propose a connection ---------------
     const isPerson = (id: string) => !id.startsWith('co-') && !id.startsWith('g-')
@@ -770,8 +908,19 @@ export function Network() {
       setMovedCount(Object.keys(movedRef.current).length)
     })
 
+    // Cytoscape has no double-tap event, so pair up two taps on the same node.
+    let lastTap = { id: '', at: 0 }
     cy.on('tap', 'node', (evt) => {
       const id: string = evt.target.id()
+      const at = Date.now()
+      const double = lastTap.id === id && at - lastTap.at < 400
+      lastTap = { id, at }
+      if (double && isPerson(id)) {
+        // Add this person's own network to whatever is already on screen.
+        setFocusCompany(null)
+        setFocusPeople((prev) => (prev.includes(id) ? prev : [...prev, id]))
+        return
+      }
       if (id.startsWith('co-')) setSelected({ kind: 'company', key: id.slice(3) })
       else if (id.startsWith('g-')) setSelected({ kind: 'group', id: id.slice(2) })
       else setSelected({ kind: 'contact', id })
@@ -780,10 +929,15 @@ export function Network() {
       if (evt.target === cy) setSelected(null)
     })
 
-    if (focusPerson && cy.getElementById(focusPerson).length > 0) {
-      const node = cy.getElementById(focusPerson)
-      node.select()
-      cy.animate({ center: { eles: node }, zoom: 1.3, duration: 400 })
+    // In the ego layout distance carries meaning, so keep the whole ring
+    // structure in frame instead of zooming in on the middle of it. The fit
+    // above already did that; only when it had to clamp for legibility does the
+    // view need steering, and then it belongs on the focused people.
+    let centres = cy.collection()
+    for (const id of focusPeople) centres = centres.union(cy.getElementById(id))
+    if (centres.nonempty()) {
+      centres.select()
+      if (cy.zoom() <= LEGIBLE_ZOOM) cy.center(centres)
     }
 
     cyRef.current = cy
@@ -791,7 +945,7 @@ export function Network() {
       cyRef.current = null
       cy.destroy()
     }
-  }, [elements, focusPerson, themeTick])
+  }, [elements, focusPeople, themeTick])
 
   const doSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -800,18 +954,18 @@ export function Network() {
     const match = (contacts ?? []).find((c) => fullName(c).toLowerCase().includes(s))
     if (match) {
       setFocusCompany(null)
-      setFocusPerson(match.id)
+      setFocusPeople([match.id])
       setSelected({ kind: 'contact', id: match.id })
     }
   }
 
   const focusOnCompany = (key: string) => {
-    setFocusPerson(null)
+    setFocusPeople([])
     setFocusCompany(key)
     setSelected(null)
   }
   const clearFocus = () => {
-    setFocusPerson(null)
+    setFocusPeople([])
     setFocusCompany(null)
     setSelected(null)
   }
@@ -823,7 +977,8 @@ export function Network() {
     setMovedCount(0)
     const cy = cyRef.current
     if (!cy) return
-    const home = computePositions(elements)
+    const ego = focusPeople.length > 0 ? egoPositions(elements, focusPeople) : {}
+    const home = Object.keys(ego).length > 0 ? ego : computePositions(elements)
     cy.batch(() =>
       cy.nodes().forEach((n) => {
         const p = home[n.id()]
@@ -839,8 +994,9 @@ export function Network() {
   const selectedCompany = selected?.kind === 'company' ? companyIndex.get(selected.key) : null
   const hasAnything = (contacts ?? []).length > 0
 
-  const focusLabel = focusPerson
-    ? (byId.get(focusPerson) && fullName(byId.get(focusPerson)!)) || 'person'
+  const focusNames = focusPeople.map((id) => ({ id, name: (byId.get(id) && fullName(byId.get(id)!)) || 'person' }))
+  const focusLabel = focusNames.length > 0
+    ? focusNames.map((f) => f.name).join(' + ')
     : focusCompany
       ? companyIndex.get(focusCompany)?.display ?? 'company'
       : null
@@ -906,11 +1062,33 @@ export function Network() {
 
       {(focusLabel || note) && (
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          {focusLabel && (
-            <button onClick={clearFocus} className={`${chip} bg-indigo-600/20 text-indigo-300 inline-flex items-center gap-1`}>
-              Focused on {focusLabel}
-              <Icon name="x" className="w-3 h-3" />
-            </button>
+          {focusNames.length > 0 ? (
+            <>
+              <span>Focused on</span>
+              {focusNames.map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setFocusPeople((prev) => prev.filter((id) => id !== f.id))}
+                  className={`${chip} bg-indigo-600/20 text-indigo-300 inline-flex items-center gap-1`}
+                  title="Drop this person from the view"
+                >
+                  {f.name}
+                  <Icon name="x" className="w-3 h-3" />
+                </button>
+              ))}
+              {focusNames.length > 1 && (
+                <button onClick={clearFocus} className="hover:text-slate-300 underline">
+                  clear all
+                </button>
+              )}
+            </>
+          ) : (
+            focusLabel && (
+              <button onClick={clearFocus} className={`${chip} bg-indigo-600/20 text-indigo-300 inline-flex items-center gap-1`}>
+                Focused on {focusLabel}
+                <Icon name="x" className="w-3 h-3" />
+              </button>
+            )
           )}
           {note && <span>{note}</span>}
           {!focusLabel && shown < total && <span>· {shown} of {total} people shown</span>}
@@ -956,11 +1134,11 @@ export function Network() {
                     {[selectedContact.title, selectedContact.company].filter(Boolean).join(' @ ') || selectedContact.kind}
                   </p>
                   <div className="flex gap-3 mt-0.5">
-                    {focusPerson !== selectedContact.id && (
+                    {!focusPeople.includes(selectedContact.id) && (
                       <button
                         onClick={() => {
                           setFocusCompany(null)
-                          setFocusPerson(selectedContact.id)
+                          setFocusPeople([selectedContact.id])
                         }}
                         className="text-xs text-indigo-400 hover:underline"
                       >
@@ -1017,9 +1195,10 @@ export function Network() {
       <p className="text-xs text-slate-600">
         Search a name to see just their network, or click a <span className="text-sky-500">company</span> hub to explore
         everyone there. Drag to pan · scroll to zoom. Blue hubs group people by shared employer; dashed lines are group
-        memberships; solid lines are direct connections you've added. Drag a node anywhere to
-        rearrange the chart — it stays put; drop one person on top of another to connect them. "Reset layout" puts
-        everything back.
+        memberships; solid lines are direct connections you've added. Focused on someone, the ring nearest them is who
+        they're directly connected to, colleagues sit beyond that and businesses furthest out — double-click anyone to
+        add their network to the view as well. Drag a node anywhere to rearrange the chart — it stays put; drop one
+        person on top of another to connect them. "Reset layout" puts everything back.
       </p>
     </div>
   )
