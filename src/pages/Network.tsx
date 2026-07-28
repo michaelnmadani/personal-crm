@@ -7,6 +7,7 @@ import {
   useAllGroupMembers,
   useAllWorkHistory,
   useContacts,
+  useGroupCompanies,
   useGroups,
   useMut,
   usePhotoUrls,
@@ -368,6 +369,7 @@ export function Network() {
   const { data: rels } = useRelationships()
   const { data: groups } = useGroups()
   const { data: memberships } = useAllGroupMembers()
+  const { data: groupCompanies } = useGroupCompanies()
   const { data: allWork } = useAllWorkHistory()
   const { data: photos } = usePhotoUrls((contacts ?? []).map((c) => c.photo_url))
   const [params] = useSearchParams()
@@ -399,21 +401,40 @@ export function Network() {
 
   const byId = useMemo(() => new Map((contacts ?? []).map((c) => [c.id, c])), [contacts])
 
+  // Company names the user has mapped onto a group: normalized name -> group.
+  // Those names share the group's key, so several spellings of one employer
+  // ("Macquarie Group", "Macquarie Bank") collapse into a single hub.
+  const aliasToGroup = useMemo(() => {
+    const byGroup = new Map((groups ?? []).map((g) => [g.id, g]))
+    const m = new Map<string, { key: string; display: string }>()
+    for (const gc of groupCompanies ?? []) {
+      const g = byGroup.get(gc.group_id)
+      const key = normCompany(gc.company)
+      if (!g || !key) continue
+      m.set(key, { key: `grp-${g.id}`, display: g.name })
+    }
+    return m
+  }, [groupCompanies, groups])
+
   // company key -> { display name, member ids }, from current company + work history.
   const companyIndex = useMemo(() => {
     const m = new Map<string, { display: string; ids: Set<string> }>()
     const add = (company: string | null, id: string) => {
       if (!company) return
-      const key = normCompany(company)
-      if (!key) return
-      const e = m.get(key) ?? { display: company.trim(), ids: new Set<string>() }
+      const raw = normCompany(company)
+      if (!raw) return
+      const mapped = aliasToGroup.get(raw)
+      const key = mapped?.key ?? raw
+      const e = m.get(key) ?? { display: mapped?.display ?? company.trim(), ids: new Set<string>() }
+      // A mapped name always wins the label, however the hub was first created.
+      if (mapped) e.display = mapped.display
       e.ids.add(id)
       m.set(key, e)
     }
     for (const c of contacts ?? []) add(c.company, c.id)
     for (const w of allWork ?? []) add(w.company, w.contact_id)
     return m
-  }, [contacts, allWork])
+  }, [contacts, allWork, aliasToGroup])
 
   const companiesOf = useMemo(() => {
     const m = new Map<string, string[]>() // contactId -> [company keys]

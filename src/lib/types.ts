@@ -113,6 +113,13 @@ export type Group = {
   notes: string | null
 }
 
+/** A company name that belongs to a group — several can point at one group. */
+export type GroupCompany = {
+  id: string
+  group_id: string
+  company: string
+}
+
 export type GroupMember = {
   group_id: string
   contact_id: string

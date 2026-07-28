@@ -1,7 +1,16 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { GroupType } from '../lib/types'
-import { api, useContacts, useGroupMembers, useGroups, useMut, usePhotoUrls } from '../lib/hooks'
+import {
+  api,
+  useAllWorkHistory,
+  useContacts,
+  useGroupCompanies,
+  useGroupMembers,
+  useGroups,
+  useMut,
+  usePhotoUrls,
+} from '../lib/hooks'
 import { fullName } from '../lib/utils'
 import { Avatar } from './Avatar'
 import { Icon } from './Icon'
@@ -27,6 +36,97 @@ const TYPE_STYLE: Record<GroupType, string> = {
   nonprofit: 'bg-teal-500/25',
   family: 'bg-rose-500/25',
   other: 'bg-slate-500/25',
+}
+
+/**
+ * Company names that roll up into this group. Several names for the same
+ * employer ("Macquarie Group", "Macquarie Bank") map onto one group and then
+ * draw as a single hub on the network chart instead of separate companies.
+ */
+function GroupCompanies({ groupId }: { groupId: string }) {
+  const { data: mapped } = useGroupCompanies()
+  const { data: contacts } = useContacts()
+  const { data: allWork } = useAllWorkHistory()
+  const addCompany = useMut(api.addGroupCompany)
+  const removeCompany = useMut(api.removeGroupCompany)
+  const [find, setFind] = useState('')
+
+  const mine = (mapped ?? []).filter((m) => m.group_id === groupId)
+  // Names already spoken for anywhere — a company belongs to one group only.
+  const taken = useMemo(() => new Set((mapped ?? []).map((m) => m.company.toLowerCase())), [mapped])
+
+  // Every company name in the address book, from current employer and history.
+  const known = useMemo(() => {
+    const s = new Map<string, string>()
+    for (const c of contacts ?? []) if (c.company?.trim()) s.set(c.company.trim().toLowerCase(), c.company.trim())
+    for (const w of allWork ?? []) if (w.company?.trim()) s.set(w.company.trim().toLowerCase(), w.company.trim())
+    return [...s.values()].sort((a, b) => a.localeCompare(b))
+  }, [contacts, allWork])
+
+  const matches = useMemo(() => {
+    const s = find.trim().toLowerCase()
+    if (!s) return []
+    return known.filter((n) => !taken.has(n.toLowerCase()) && n.toLowerCase().includes(s)).slice(0, 6)
+  }, [find, known, taken])
+
+  const add = async (company: string) => {
+    await addCompany.mutateAsync({ group_id: groupId, company })
+    setFind('')
+  }
+
+  return (
+    <div className="space-y-2 border-t border-slate-800 pt-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Companies</p>
+      {mine.length > 0 ? (
+        <ul className="flex flex-wrap gap-1.5">
+          {mine.map((m) => (
+            <li key={m.id} className={`${chip} bg-slate-500/25 text-slate-100 flex items-center gap-1.5`}>
+              {m.company}
+              <button
+                onClick={() => removeCompany.mutate(m.id)}
+                className="text-slate-400 hover:text-red-400"
+                aria-label={`Unmap ${m.company} from group`}
+              >
+                <Icon name="x" className="w-3 h-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-slate-500">
+          No companies mapped. Add the names of the same employer to show them as one on the network chart.
+        </p>
+      )}
+
+      <div className="relative">
+        <input
+          className={input}
+          placeholder="Map a company — start typing a name…"
+          value={find}
+          onChange={(e) => setFind(e.target.value)}
+        />
+        {matches.length > 0 && (
+          <ul className="absolute z-10 left-0 right-0 mt-1 rounded-lg border border-slate-700 bg-slate-900 shadow-xl overflow-hidden">
+            {matches.map((n) => (
+              <li key={n}>
+                <button className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-800" onClick={() => add(n)}>
+                  {n}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {find.trim() && matches.length === 0 && (
+          <p className="mt-1 text-sm text-slate-500">
+            {taken.has(find.trim().toLowerCase())
+              ? `“${find.trim()}” is already mapped to a group.`
+              : `No company matches “${find.trim()}”.`}
+          </p>
+        )}
+      </div>
+      {addCompany.isError && <p className="text-sm text-red-400">{(addCompany.error as Error).message}</p>}
+    </div>
+  )
 }
 
 /**
@@ -114,6 +214,8 @@ function GroupMembers({ groupId }: { groupId: string }) {
           <p className="mt-1 text-sm text-slate-500">No one matches “{find.trim()}”.</p>
         )}
       </div>
+
+      <GroupCompanies groupId={groupId} />
     </div>
   )
 }

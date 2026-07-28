@@ -481,28 +481,35 @@ function FamilyEditor({ contactId }: { contactId: string }) {
   )
 }
 
-function WorkHistoryEditor({ contactId }: { contactId: string }) {
-  const { data: work } = useWorkHistory(contactId)
-  const add = useMut(api.addWork)
-  const remove = useMut(api.deleteWork)
-  const [adding, setAdding] = useState(false)
-  const [company, setCompany] = useState('')
-  const [title, setTitle] = useState('')
-  const [startYear, setStartYear] = useState('')
-  const [endYear, setEndYear] = useState('')
-  const [current, setCurrent] = useState(false)
-  const [notes, setNotes] = useState('')
-
-  const span = (w: WorkHistory) => {
-    if (!w.start_year && !w.end_year && !w.is_current) return null
-    return `${w.start_year ?? '?'}–${w.is_current ? 'now' : (w.end_year ?? '?')}`
-  }
+/**
+ * The fields of one role, shared by adding a new one and editing an existing
+ * one — a role is the same shape either way, and keeping one form means the
+ * two can't drift apart.
+ */
+function RoleForm({
+  initial,
+  submitLabel,
+  pending,
+  onSubmit,
+  onCancel,
+}: {
+  initial?: WorkHistory
+  submitLabel: string
+  pending: boolean
+  onSubmit: (v: Omit<WorkHistory, 'id' | 'contact_id'>) => Promise<void>
+  onCancel?: () => void
+}) {
+  const [company, setCompany] = useState(initial?.company ?? '')
+  const [title, setTitle] = useState(initial?.title ?? '')
+  const [startYear, setStartYear] = useState(initial?.start_year ? String(initial.start_year) : '')
+  const [endYear, setEndYear] = useState(initial?.end_year ? String(initial.end_year) : '')
+  const [current, setCurrent] = useState(initial?.is_current ?? false)
+  const [notes, setNotes] = useState(initial?.notes ?? '')
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!company.trim()) return
-    await add.mutateAsync({
-      contact_id: contactId,
+    await onSubmit({
       company: company.trim(),
       title: title.trim() || null,
       start_year: startYear ? Number(startYear) : null,
@@ -510,76 +517,133 @@ function WorkHistoryEditor({ contactId }: { contactId: string }) {
       is_current: current,
       notes: notes.trim() || null,
     })
-    setCompany('')
-    setTitle('')
-    setStartYear('')
-    setEndYear('')
-    setCurrent(false)
-    setNotes('')
-    setAdding(false)
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-2 space-y-2 border-t border-slate-800 pt-2">
+      <div className="flex gap-2">
+        <input className={input} placeholder="Company *" value={company} onChange={(e) => setCompany(e.target.value)} required />
+        <input className={input} placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+      <div className="flex gap-2 items-center">
+        <input
+          type="number"
+          className={input}
+          placeholder="From year"
+          value={startYear}
+          onChange={(e) => setStartYear(e.target.value)}
+        />
+        <input
+          type="number"
+          className={input}
+          placeholder="To year"
+          value={endYear}
+          onChange={(e) => setEndYear(e.target.value)}
+          disabled={current}
+        />
+        <label className="flex items-center gap-1.5 text-xs text-slate-400 shrink-0">
+          <input type="checkbox" checked={current} onChange={(e) => setCurrent(e.target.checked)} />
+          current
+        </label>
+      </div>
+      <input className={input} placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+      <div className="flex gap-3">
+        <button type="submit" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium" disabled={pending}>
+          {submitLabel}
+        </button>
+        {onCancel && (
+          <button type="button" className="text-xs text-slate-500 hover:text-slate-300" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
+    </form>
+  )
+}
+
+function WorkHistoryEditor({ contactId }: { contactId: string }) {
+  const { data: work } = useWorkHistory(contactId)
+  const add = useMut(api.addWork)
+  const update = useMut(api.updateWork)
+  const remove = useMut(api.deleteWork)
+  const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<string | null>(null)
+
+  const span = (w: WorkHistory) => {
+    if (!w.start_year && !w.end_year && !w.is_current) return null
+    return `${w.start_year ?? '?'}–${w.is_current ? 'now' : (w.end_year ?? '?')}`
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work history</h3>
-        <button className="text-xs text-indigo-400 hover:text-indigo-300" onClick={() => setAdding(!adding)}>
+        <button
+          className="text-xs text-indigo-400 hover:text-indigo-300"
+          onClick={() => {
+            setAdding(!adding)
+            setEditing(null)
+          }}
+        >
           {adding ? 'cancel' : '+ add'}
         </button>
       </div>
       <ul className="space-y-1.5">
-        {(work ?? []).map((w) => (
-          <li key={w.id} className="flex items-start gap-2 text-sm group">
-            <span className="text-slate-200">
-              {w.title ? `${w.title} · ` : ''}
-              <span className="font-medium">{w.company}</span>
-              {span(w) && <span className="text-slate-500"> — {span(w)}</span>}
-              {w.is_current && <span className="ml-1.5 text-[0.625rem] uppercase tracking-wide text-emerald-400">current</span>}
-              {w.notes && <span className="block text-xs text-slate-500">{w.notes}</span>}
-            </span>
-            <button
-              className="ml-auto opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400"
-              onClick={() => remove.mutate(w.id)}
-              aria-label="Remove"
-            >
-              <Icon name="x" className="w-3.5 h-3.5" />
-            </button>
-          </li>
-        ))}
+        {(work ?? []).map((w) =>
+          editing === w.id ? (
+            <li key={w.id}>
+              <RoleForm
+                initial={w}
+                submitLabel="Save changes"
+                pending={update.isPending}
+                onCancel={() => setEditing(null)}
+                onSubmit={async (v) => {
+                  await update.mutateAsync({ id: w.id, ...v })
+                  setEditing(null)
+                }}
+              />
+            </li>
+          ) : (
+            <li key={w.id} className="flex items-start gap-2 text-sm group">
+              <span className="text-slate-200">
+                {w.title ? `${w.title} · ` : ''}
+                <span className="font-medium">{w.company}</span>
+                {span(w) && <span className="text-slate-500"> — {span(w)}</span>}
+                {w.is_current && <span className="ml-1.5 text-[0.625rem] uppercase tracking-wide text-emerald-400">current</span>}
+                {w.notes && <span className="block text-xs text-slate-500">{w.notes}</span>}
+              </span>
+              <button
+                className="ml-auto opacity-0 group-hover:opacity-100 text-slate-600 hover:text-indigo-400"
+                onClick={() => {
+                  setEditing(w.id)
+                  setAdding(false)
+                }}
+                aria-label={`Edit role ${w.title ? `${w.title} at ` : ''}${w.company}`}
+              >
+                <Icon name="edit" className="w-3.5 h-3.5" />
+              </button>
+              <button
+                className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400"
+                onClick={() => remove.mutate(w.id)}
+                aria-label="Remove"
+              >
+                <Icon name="x" className="w-3.5 h-3.5" />
+              </button>
+            </li>
+          ),
+        )}
         {(work ?? []).length === 0 && !adding && <li className="text-sm text-slate-600">None recorded.</li>}
       </ul>
       {adding && (
-        <form onSubmit={submit} className="mt-2 space-y-2 border-t border-slate-800 pt-2">
-          <div className="flex gap-2">
-            <input className={input} placeholder="Company *" value={company} onChange={(e) => setCompany(e.target.value)} required />
-            <input className={input} placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-          </div>
-          <div className="flex gap-2 items-center">
-            <input
-              type="number"
-              className={input}
-              placeholder="From year"
-              value={startYear}
-              onChange={(e) => setStartYear(e.target.value)}
-            />
-            <input
-              type="number"
-              className={input}
-              placeholder="To year"
-              value={endYear}
-              onChange={(e) => setEndYear(e.target.value)}
-              disabled={current}
-            />
-            <label className="flex items-center gap-1.5 text-xs text-slate-400 shrink-0">
-              <input type="checkbox" checked={current} onChange={(e) => setCurrent(e.target.checked)} />
-              current
-            </label>
-          </div>
-          <input className={input} placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
-          <button type="submit" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
-            Save role
-          </button>
-        </form>
+        <RoleForm
+          submitLabel="Save role"
+          pending={add.isPending}
+          onCancel={() => setAdding(false)}
+          onSubmit={async (v) => {
+            await add.mutateAsync({ contact_id: contactId, ...v })
+            setAdding(false)
+          }}
+        />
       )}
     </div>
   )

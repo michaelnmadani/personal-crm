@@ -10,6 +10,7 @@ import type {
   Fact,
   FamilyMember,
   Group,
+  GroupCompany,
   GroupMember,
   GroupType,
   Interaction,
@@ -245,6 +246,13 @@ export const useAllGroupMembers = () =>
     queryFn: () => q<GroupMember[]>(supabase.from('group_members').select('group_id, contact_id, role')),
   })
 
+/** Company names mapped onto groups — every row, for the network chart. */
+export const useGroupCompanies = () =>
+  useQuery({
+    queryKey: ['groupCompanies'],
+    queryFn: () => q<GroupCompany[]>(supabase.from('group_companies').select('id, group_id, company').order('company')),
+  })
+
 export const useRelationships = () =>
   useQuery({
     queryKey: ['relationships'],
@@ -306,7 +314,13 @@ export const api = {
   deleteFact: (id: string) => q<null>(supabase.from('facts').delete().eq('id', id)),
 
   addWork: (w: Omit<WorkHistory, 'id'>) => q<WorkHistory>(supabase.from('work_history').insert(w).select().single()),
+  updateWork: ({ id, ...patch }: Omit<WorkHistory, 'contact_id'>) =>
+    q<WorkHistory>(supabase.from('work_history').update(patch).eq('id', id).select().single()),
   deleteWork: (id: string) => q<null>(supabase.from('work_history').delete().eq('id', id)),
+
+  addGroupCompany: (c: { group_id: string; company: string }) =>
+    q<GroupCompany>(supabase.from('group_companies').insert(c).select().single()),
+  removeGroupCompany: (id: string) => q<null>(supabase.from('group_companies').delete().eq('id', id)),
 
   createGroup: (g: { name: string; type: GroupType }) =>
     q<Group>(supabase.from('groups').insert(g).select().single()),
