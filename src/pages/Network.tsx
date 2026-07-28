@@ -61,6 +61,10 @@ const ORBIT_STEP = 70
 // towards the bands, close enough to read as belonging to them.
 const ORBIT_ARC = Math.PI * 0.95
 
+// Successive turns of this angle never repeat or bunch up, which makes it a
+// good way to scatter things that have no direction of their own.
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
+
 type Pos = { x: number; y: number }
 
 /**
@@ -226,18 +230,21 @@ function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): R
     frontier = next
   }
 
-  // Which hub claims each person, so ring members can be grouped by employer
-  // and a hub can be parked near its own people.
+  // Everyone each hub holds, and separately the one hub that claims each person.
+  // The two differ: somebody at a company who is also in a club belongs to both
+  // hubs, but can only orbit one of them. Aiming a pill needs the full list —
+  // using only the people it claims leaves a group whose members all work
+  // somewhere else with no direction at all, stranded away from its own people.
+  const membersOf = new Map<string, string[]>(hubIds.map((h) => [h, []]))
   const hubOf = new Map<string, string>()
-  const hubSize = new Map<string, number>(hubIds.map((h) => [h, 0]))
   for (const e of els) {
     const d = data(e)
     if (!d.source || !d.target || (!d.hub && !d.membership)) continue
-    if (!hubOf.has(d.source) && hubSize.has(d.target)) {
-      hubOf.set(d.source, d.target)
-      hubSize.set(d.target, (hubSize.get(d.target) ?? 0) + 1)
-    }
+    if (!membersOf.has(d.target)) continue
+    membersOf.get(d.target)!.push(d.source)
+    if (!hubOf.has(d.source)) hubOf.set(d.source, d.target)
   }
+  const hubSize = new Map<string, number>([...membersOf].map(([h, m]) => [h, m.length]))
   // Bigger hubs first, so the same employer keeps the same slice of the circle
   // in every ring and they line up radially.
   const hubOrder = new Map([...hubIds].sort((a, b) => (hubSize.get(b) ?? 0) - (hubSize.get(a) ?? 0)).map((h, i) => [h, i]))
@@ -386,20 +393,30 @@ function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): R
     // from there, so the name stays close to the network it belongs to.
     const rHub = edge + HUB_GAP
 
+    /**
+     * The direction a pill should sit in: the average angle of its members that
+     * are out on a band. A hub whose people are all group-only has no bearing of
+     * its own — those return null and get spread into the gaps afterwards.
+     */
     const mean = (h: string) => {
       let sx = 0
       let sy = 0
-      for (const [id, hub] of hubOf) {
-        if (hub !== h) continue
+      for (const id of membersOf.get(h) ?? []) {
         const a = angles.get(id)
         if (a === undefined) continue
         sx += Math.cos(a)
         sy += Math.sin(a)
       }
-      return sx === 0 && sy === 0 ? -Math.PI / 2 : Math.atan2(sy, sx)
+      return sx === 0 && sy === 0 ? null : Math.atan2(sy, sx)
     }
     const norm = (a: number) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
-    const placed = shownHubs.map((h) => ({ h, a: norm(mean(h)) })).sort((x, y) => x.a - y.a)
+    const aimed = shownHubs.map((h) => ({ h, a: mean(h) }))
+    // Anything with no bearing is fanned out from straight up rather than
+    // stacked there, so unanchored pills don't all land on the same spot.
+    let free = 0
+    const placed = aimed
+      .map(({ h, a }) => ({ h, a: norm(a ?? -Math.PI / 2 + free++ * GOLDEN_ANGLE) }))
+      .sort((x, y) => x.a - y.a)
     // Two hubs whose members sit in the same direction would land on top of each
     // other, so keep an arc between them wide enough for their clusters too.
     const minSep = Math.min(
