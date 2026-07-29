@@ -64,6 +64,8 @@ export type WorkHistory = {
   end_year: number | null
   is_current: boolean
   notes: string | null
+  /** The period exactly as pasted, when the entry came from LinkedIn. */
+  raw_period?: string | null
 }
 
 export type InteractionKind = 'meeting' | 'call' | 'email' | 'message' | 'event' | 'note'

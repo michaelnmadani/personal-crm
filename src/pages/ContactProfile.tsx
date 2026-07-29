@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { format } from 'date-fns'
 import type { ContactOverview, GroupType, Interaction, Relation, WorkHistory } from '../lib/types'
@@ -18,6 +18,7 @@ import {
   useRelationships,
   useWorkHistory,
 } from '../lib/hooks'
+import { parseLinkedInExperience, workKey, type WorkDraft } from '../lib/parseLinkedIn'
 import { ageOf, ago, daysUntil, fmtBirthday, fmtDate, fmtDateTime, fullName, kitDueInDays, nextOccurrence, turningAge } from '../lib/utils'
 import { Avatar } from '../components/Avatar'
 import { ContactForm } from '../components/ContactForm'
@@ -561,12 +562,197 @@ function RoleForm({
   )
 }
 
+/**
+ * Paste a LinkedIn Experience block and turn it into work-history entries.
+ *
+ * Everything the parser produces is shown as an editable row first: a paste is
+ * a guess about somebody else's formatting, so nothing reaches the database
+ * until it has been looked at. Rows already saved against this contact arrive
+ * unticked and labelled, so pasting an updated profile adds only what's new.
+ */
+function PasteWorkHistory({
+  contactId,
+  existing,
+  onDone,
+}: {
+  contactId: string
+  existing: WorkHistory[]
+  onDone: () => void
+}) {
+  const addBatch = useMut(api.addWorkBatch)
+  const [text, setText] = useState('')
+  const [rows, setRows] = useState<{ draft: WorkDraft; take: boolean; dupe: boolean }[] | null>(null)
+
+  const alreadyHave = useMemo(() => new Set(existing.map(workKey)), [existing])
+
+  const parse = () => {
+    const drafts = parseLinkedInExperience(text)
+    setRows(
+      drafts.map((draft) => {
+        const dupe = alreadyHave.has(workKey(draft))
+        return { draft, take: !dupe, dupe }
+      }),
+    )
+  }
+
+  const patch = (i: number, v: Partial<WorkDraft>) =>
+    setRows((prev) => prev && prev.map((r, k) => (k === i ? { ...r, draft: { ...r.draft, ...v } } : r)))
+
+  const save = async () => {
+    const keep = (rows ?? []).filter((r) => r.take && r.draft.company.trim())
+    if (keep.length === 0) return
+    await addBatch.mutateAsync(
+      keep.map((r) => ({
+        contact_id: contactId,
+        company: r.draft.company.trim(),
+        title: r.draft.title?.trim() || null,
+        start_year: r.draft.start_year,
+        end_year: r.draft.is_current ? null : r.draft.end_year,
+        is_current: r.draft.is_current,
+        notes: null,
+        raw_period: r.draft.raw_period,
+      })),
+    )
+    onDone()
+  }
+
+  const taking = (rows ?? []).filter((r) => r.take).length
+  const dupes = (rows ?? []).filter((r) => r.dupe).length
+
+  return (
+    <div className="mt-2 space-y-2 border-t border-slate-800 pt-2">
+      {rows === null ? (
+        <>
+          <textarea
+            className={`${input} h-32 font-mono text-xs`}
+            placeholder="Paste the Experience section from their LinkedIn profile…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            autoFocus
+          />
+          <div className="flex gap-3">
+            <button
+              className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
+              onClick={parse}
+              disabled={!text.trim()}
+            >
+              Read it
+            </button>
+            <button className="text-xs text-slate-500 hover:text-slate-300" onClick={onDone}>
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : rows.length === 0 ? (
+        <>
+          <p className="text-sm text-red-400">
+            Couldn't find any roles in that. Each one needs a line with its years, like "Mar 2019 - Present".
+          </p>
+          <div className="flex gap-3">
+            <button className="text-xs text-indigo-400 hover:text-indigo-300" onClick={() => setRows(null)}>
+              Back to the text
+            </button>
+            <button className="text-xs text-slate-500 hover:text-slate-300" onClick={onDone}>
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-xs text-slate-500">
+            Found {rows.length} role{rows.length === 1 ? '' : 's'}
+            {dupes > 0 && ` · ${dupes} already saved, unticked`}. Edit anything that came out wrong, then save.
+          </p>
+          <ul className="space-y-2">
+            {rows.map((r, i) => (
+              <li key={i} className={`flex gap-2 ${r.take ? '' : 'opacity-50'}`}>
+                <input
+                  type="checkbox"
+                  checked={r.take}
+                  onChange={(e) => setRows((prev) => prev && prev.map((x, k) => (k === i ? { ...x, take: e.target.checked } : x)))}
+                  className="mt-2 w-4 h-4 shrink-0 accent-indigo-600"
+                  aria-label={`Save ${r.draft.company}`}
+                />
+                <div className="flex-1 space-y-1 min-w-0">
+                  <div className="flex gap-1.5">
+                    <input
+                      className={`${input} text-sm`}
+                      value={r.draft.company}
+                      onChange={(e) => patch(i, { company: e.target.value })}
+                      placeholder="Company *"
+                      aria-label="Company"
+                    />
+                    <input
+                      className={`${input} text-sm`}
+                      value={r.draft.title ?? ''}
+                      onChange={(e) => patch(i, { title: e.target.value })}
+                      placeholder="Title"
+                      aria-label="Title"
+                    />
+                  </div>
+                  <div className="flex gap-1.5 items-center">
+                    <input
+                      type="number"
+                      className={`${input} text-sm`}
+                      value={r.draft.start_year ?? ''}
+                      onChange={(e) => patch(i, { start_year: e.target.value ? Number(e.target.value) : null })}
+                      placeholder="From"
+                      aria-label="From year"
+                    />
+                    <input
+                      type="number"
+                      className={`${input} text-sm`}
+                      value={r.draft.end_year ?? ''}
+                      onChange={(e) => patch(i, { end_year: e.target.value ? Number(e.target.value) : null })}
+                      placeholder="To"
+                      disabled={r.draft.is_current}
+                      aria-label="To year"
+                    />
+                    <label className="flex items-center gap-1.5 text-xs text-slate-400 shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={r.draft.is_current}
+                        onChange={(e) => patch(i, { is_current: e.target.checked })}
+                      />
+                      current
+                    </label>
+                  </div>
+                  <p className="text-[0.6875rem] text-slate-600">
+                    from “{r.draft.raw_period}”{r.dupe && ' · already saved'}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {addBatch.isError && <p className="text-sm text-red-400">{(addBatch.error as Error).message}</p>}
+          <div className="flex gap-3">
+            <button
+              className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
+              onClick={save}
+              disabled={taking === 0 || addBatch.isPending}
+            >
+              Save {taking} role{taking === 1 ? '' : 's'}
+            </button>
+            <button className="text-xs text-slate-500 hover:text-slate-300" onClick={() => setRows(null)}>
+              Back to the text
+            </button>
+            <button className="text-xs text-slate-500 hover:text-slate-300" onClick={onDone}>
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function WorkHistoryEditor({ contactId }: { contactId: string }) {
   const { data: work } = useWorkHistory(contactId)
   const add = useMut(api.addWork)
   const update = useMut(api.updateWork)
   const remove = useMut(api.deleteWork)
   const [adding, setAdding] = useState(false)
+  const [pasting, setPasting] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
 
   const span = (w: WorkHistory) => {
@@ -578,16 +764,33 @@ function WorkHistoryEditor({ contactId }: { contactId: string }) {
     <div>
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work history</h3>
-        <button
-          className="text-xs text-indigo-400 hover:text-indigo-300"
-          onClick={() => {
-            setAdding(!adding)
-            setEditing(null)
-          }}
-        >
-          {adding ? 'cancel' : '+ add'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            className="text-xs text-indigo-400 hover:text-indigo-300"
+            onClick={() => {
+              setPasting(!pasting)
+              setAdding(false)
+              setEditing(null)
+            }}
+            title="Paste the Experience section straight off a LinkedIn profile"
+          >
+            {pasting ? 'cancel' : 'paste from LinkedIn'}
+          </button>
+          <button
+            className="text-xs text-indigo-400 hover:text-indigo-300"
+            onClick={() => {
+              setAdding(!adding)
+              setPasting(false)
+              setEditing(null)
+            }}
+          >
+            {adding ? 'cancel' : '+ add'}
+          </button>
+        </div>
       </div>
+      {pasting && (
+        <PasteWorkHistory contactId={contactId} existing={work ?? []} onDone={() => setPasting(false)} />
+      )}
       <ul className="space-y-1.5">
         {(work ?? []).map((w) =>
           editing === w.id ? (

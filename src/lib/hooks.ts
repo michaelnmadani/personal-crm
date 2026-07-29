@@ -314,6 +314,9 @@ export const api = {
   deleteFact: (id: string) => q<null>(supabase.from('facts').delete().eq('id', id)),
 
   addWork: (w: Omit<WorkHistory, 'id'>) => q<WorkHistory>(supabase.from('work_history').insert(w).select().single()),
+  /** Save a whole pasted work history in one round trip. */
+  addWorkBatch: (rows: Omit<WorkHistory, 'id'>[]) =>
+    q<WorkHistory[]>(supabase.from('work_history').insert(rows).select()),
   updateWork: ({ id, ...patch }: Omit<WorkHistory, 'contact_id'>) =>
     q<WorkHistory>(supabase.from('work_history').update(patch).eq('id', id).select().single()),
   deleteWork: (id: string) => q<null>(supabase.from('work_history').delete().eq('id', id)),
