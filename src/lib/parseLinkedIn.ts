@@ -56,12 +56,11 @@ function readPeriod(line: string): { start: number | null; end: number | null; c
 }
 
 /**
- * A location line — "Sydney, New South Wales, Australia · Hybrid". Commas plus
- * no digits is a good enough signal, and getting it wrong only costs a draft
- * row the user can correct.
+ * The alt text of a company logo — "Westpac logo". Copying the page as
+ * markdown brings the images along, and their alt text reads just like a
+ * company name, so it has to go before it is mistaken for one.
  */
-const looksLikeLocation = (line: string) =>
-  beforeDot(line).split(',').length >= 2 && !/\d/.test(beforeDot(line)) && beforeDot(line).length < 80
+const isLogoAlt = (line: string) => /^.{1,60}\slogo$/i.test(line)
 
 function isNoise(line: string) {
   const bare = beforeDot(line)
@@ -70,9 +69,10 @@ function isNoise(line: string) {
     NOISE_RE.test(bare) ||
     NOISE_RE.test(line) ||
     DURATION_RE.test(bare) ||
-    looksLikeLocation(line) ||
-    // A bullet or sentence from a role description, not a title or employer.
-    /^[•*\-–]\s/.test(line) ||
+    isLogoAlt(bare) ||
+    // A bullet from a role description, not a title or employer. (Markdown
+    // list markers are handled in normalise, and mean something different.)
+    /^[•–]\s/.test(line) ||
     line.length > 120
   )
 }
@@ -89,20 +89,40 @@ function isGroupHeading(line: string) {
   return parts.length === 1 && DURATION_RE.test(parts[0])
 }
 
-/** Collapse the screen-reader duplicates: LinkedIn repeats each label. */
-function dedupeAdjacent(lines: string[]) {
-  const out: string[] = []
-  for (const l of lines) if (out[out.length - 1] !== l) out.push(l)
+type Line = {
+  text: string
+  /** Was this a markdown list item? In a grouped block that marks a job title. */
+  bullet: boolean
+}
+
+/**
+ * Reduce the paste to plain lines.
+ *
+ * Copying a LinkedIn page can land as markdown, which brings three things the
+ * plain-text copy doesn't have: every label wrapped in a link, a logo image
+ * before each employer, and a list marker on each role inside a grouped block.
+ * The links and images are stripped; the marker is kept, because it is the one
+ * signal that tells a role title apart from an employer name.
+ */
+function normalise(raw: string): Line[] {
+  const out: Line[] = []
+  for (const original of raw.split(/\r?\n/)) {
+    const text = original
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '') // logo images: drop outright
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // links: keep the label
+      .replace(/^\s*[*+]\s+/, '') // list marker, remembered below
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!text) continue
+    // Collapse the screen-reader duplicates: LinkedIn repeats each label.
+    if (out[out.length - 1]?.text === text) continue
+    out.push({ text, bullet: /^\s*[*+]\s+/.test(original) })
+  }
   return out
 }
 
 export function parseLinkedInExperience(raw: string): WorkDraft[] {
-  const lines = dedupeAdjacent(
-    raw
-      .split(/\r?\n/)
-      .map((l) => l.replace(/\s+/g, ' ').trim())
-      .filter(Boolean),
-  )
+  const lines = normalise(raw)
 
   const drafts: WorkDraft[] = []
   // The employer of a grouped block: named once at the top, then each role
@@ -112,29 +132,41 @@ export function parseLinkedInExperience(raw: string): WorkDraft[] {
   const claimed = new Set<number>()
 
   for (let i = 0; i < lines.length; i++) {
-    if (isGroupHeading(lines[i])) {
+    if (isGroupHeading(lines[i].text)) {
       const above = lines[i - 1]
-      if (above && !readPeriod(above) && !isNoise(above)) {
-        groupCompany = beforeDot(above)
+      if (above && !readPeriod(above.text) && !isNoise(above.text)) {
+        groupCompany = beforeDot(above.text)
         claimed.add(i - 1)
       }
       continue
     }
 
-    const period = readPeriod(lines[i])
+    const period = readPeriod(lines[i].text)
     if (!period) continue
 
-    // Walk back over the lines that belong to this role.
+    // Walk back over the lines that belong to this role. A list marker ends the
+    // walk: inside a grouped block that line is the job title and the employer
+    // is named once, above the whole group.
     const above: string[] = []
+    let bulleted = false
     for (let j = i - 1; j >= 0 && above.length < 2; j--) {
-      if (readPeriod(lines[j])) break // hit the previous role
-      if (claimed.has(j) || isNoise(lines[j])) continue
-      above.unshift(lines[j])
+      // The previous role, or the heading of this group — either way, a wall.
+      if (readPeriod(lines[j].text) || isGroupHeading(lines[j].text)) break
+      if (claimed.has(j) || isNoise(lines[j].text)) continue
+      above.unshift(lines[j].text)
+      if (lines[j].bullet) {
+        bulleted = true
+        break
+      }
     }
 
     let company: string | null = null
     let title: string | null = null
-    if (above.length >= 2) {
+    if (bulleted && groupCompany) {
+      // A role inside a grouped block: its employer heads the group.
+      title = above[above.length - 1]
+      company = groupCompany
+    } else if (above.length >= 2) {
       // Title then employer, LinkedIn's usual order.
       title = above[0]
       company = beforeDot(above[1])
@@ -157,7 +189,7 @@ export function parseLinkedInExperience(raw: string): WorkDraft[] {
       start_year: period.start,
       end_year: period.end,
       is_current: period.current,
-      raw_period: beforeDot(lines[i]) || lines[i],
+      raw_period: beforeDot(lines[i].text) || lines[i].text,
     })
   }
 
