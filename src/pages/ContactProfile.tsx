@@ -132,6 +132,13 @@ function MergeModal({ contact, onClose }: { contact: ContactOverview; onClose: (
   )
 }
 
+/**
+ * Lists of short entries — a connection, a relative, a fact — run in two
+ * columns once there is room for them, so a well-filled profile doesn't push
+ * everything below it far down the page.
+ */
+const COLUMNS = 'grid gap-x-5 gap-y-1.5 lg:grid-cols-2'
+
 const RELATIONS: Relation[] = ['spouse', 'partner', 'child', 'parent', 'sibling', 'pet', 'other']
 const GROUP_TYPES: GroupType[] = ['company', 'church', 'sports', 'school', 'club', 'nonprofit', 'family', 'other']
 
@@ -308,13 +315,14 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
           </button>
         </div>
       </div>
-      <ul className="space-y-1.5">
+      <ul className={COLUMNS}>
         {mine.map((r) => {
           const otherId = r.from_contact === contactId ? r.to_contact : r.from_contact
           const person = byId.get(otherId)
           if (!person) return null
           return (
-            <li key={r.id} className="text-sm group">
+            // Editing needs the room, so that one takes the full width back.
+            <li key={r.id} className={`text-sm group ${editing === r.id ? 'lg:col-span-2' : ''}`}>
               <div className="flex items-center gap-2">
                 <Link to={`/contacts/${person.id}`} className="text-slate-200 hover:text-indigo-300">
                   {fullName(person)}
@@ -363,7 +371,7 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
             </li>
           )
         })}
-        {mine.length === 0 && !adding && <li className="text-sm text-slate-600">None yet.</li>}
+        {mine.length === 0 && !adding && <li className="text-sm text-slate-600 lg:col-span-2">None yet.</li>}
       </ul>
       {adding && (
         <form onSubmit={submit} className="mt-2 space-y-2 border-t border-slate-800 pt-2">
@@ -427,13 +435,13 @@ function FamilyEditor({ contactId }: { contactId: string }) {
           {adding ? 'cancel' : '+ add'}
         </button>
       </div>
-      <ul className="space-y-1.5">
+      <ul className={COLUMNS}>
         {(family ?? []).map((f) => {
           const age = ageOf(f.birthdate, f.approx_birth_year)
           return (
             <li key={f.id} className="flex items-start gap-2 text-sm group">
               <span className="text-slate-500 capitalize w-16 shrink-0">{f.relation}</span>
-              <span className="text-slate-200">
+              <span className="text-slate-200 min-w-0 break-words">
                 {f.name}
                 {age && <span className="text-slate-500"> — {age}</span>}
                 {f.notes && <span className="block text-xs text-slate-500">{f.notes}</span>}
@@ -448,7 +456,9 @@ function FamilyEditor({ contactId }: { contactId: string }) {
             </li>
           )
         })}
-        {(family ?? []).length === 0 && !adding && <li className="text-sm text-slate-600">None recorded.</li>}
+        {(family ?? []).length === 0 && !adding && (
+          <li className="text-sm text-slate-600 lg:col-span-2">None recorded.</li>
+        )}
       </ul>
       {adding && (
         <form onSubmit={submit} className="mt-2 space-y-2 border-t border-slate-800 pt-2">
@@ -927,11 +937,13 @@ function FactsEditor({ contactId }: { contactId: string }) {
   return (
     <div>
       <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Details & facts</h3>
-      <ul className="space-y-1.5">
+      <ul className={COLUMNS}>
         {(facts ?? []).map((f) => (
           <li key={f.id} className="flex items-start gap-2 text-sm group">
-            <span className="text-slate-500 w-28 shrink-0">{f.label}</span>
-            <span className="text-slate-200">{f.value}</span>
+            <span className="text-slate-500 w-24 shrink-0 truncate" title={f.label}>
+              {f.label}
+            </span>
+            <span className="text-slate-200 min-w-0 break-words">{f.value}</span>
             <button
               className="ml-auto opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400"
               onClick={() => remove.mutate(f.id)}
@@ -1131,9 +1143,9 @@ export function ContactProfile() {
         </div>
       </header>
 
-      <div className="grid md:grid-cols-5 gap-4 items-start">
+      <div className="grid md:grid-cols-2 gap-4 items-start">
         {/* Personal panel */}
-        <div className={`${card} p-4 space-y-5 md:col-span-2`}>
+        <div className={`${card} p-4 space-y-5`}>
           <GroupsSection contactId={contact.id} />
           <ConnectionsSection contactId={contact.id} />
           <WorkHistoryEditor contactId={contact.id} />
@@ -1159,7 +1171,7 @@ export function ContactProfile() {
         </div>
 
         {/* Timeline */}
-        <div className={`${card} p-4 md:col-span-3`}>
+        <div className={`${card} p-4`}>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Timeline</h3>
           <InteractionComposer contactId={contact.id} contactName={contact.first_name} />
           <ul className="mt-4 space-y-4">
