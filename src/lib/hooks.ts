@@ -202,6 +202,19 @@ export const useDoneReminders = () =>
       ),
   })
 
+/**
+ * The follow-ups one person's timeline entries carry, done ones included — an
+ * entry should still show that it was followed up, not just that it is owed.
+ */
+export const useFollowUps = (contactId: string) =>
+  useQuery({
+    queryKey: ['reminders', 'follow-ups', contactId],
+    queryFn: () =>
+      q<Reminder[]>(
+        supabase.from('reminders').select('*').eq('contact_id', contactId).not('interaction_id', 'is', null),
+      ),
+  })
+
 // ------------------------------------------------------- groups & relations
 
 export const useGroups = () =>
@@ -527,6 +540,8 @@ export const api = {
     contact_id: string | null
     notes: string | null
     recurrence_days: number | null
+    /** Set when the reminder is a follow-up on a particular timeline entry. */
+    interaction_id?: string | null
   }) => q<Reminder>(supabase.from('reminders').insert(r).select().single()),
 
   async completeReminder(r: Reminder) {

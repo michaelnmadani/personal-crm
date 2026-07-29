@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { format } from 'date-fns'
-import type { ContactOverview, GroupType, Interaction, Relation, WorkHistory } from '../lib/types'
+import type { ContactOverview, GroupType, Interaction, Relation, Reminder, WorkHistory } from '../lib/types'
 import {
   api,
   useContact,
@@ -10,6 +10,7 @@ import {
   useContactTags,
   useFacts,
   useFamily,
+  useFollowUps,
   useGroups,
   useInteractions,
   useMut,
@@ -1012,12 +1013,50 @@ function TagRow({ contactId }: { contactId: string }) {
   )
 }
 
+/**
+ * The follow-up promised when a timeline entry was written, shown against it —
+ * and closable from there, since that is where you see it was owed.
+ */
+function FollowUp({ reminder }: { reminder: Reminder }) {
+  const complete = useMut(api.completeReminder)
+  const done = reminder.status === 'done'
+  const days = daysUntil(new Date(reminder.due_at))
+  return (
+    <div
+      className={`mt-1.5 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
+        done ? 'border-slate-700 text-slate-500' : 'border-indigo-500/40 bg-indigo-500/10'
+      }`}
+    >
+      <Icon name={done ? 'check' : 'bell'} className={`w-3.5 h-3.5 shrink-0 ${done ? '' : 'text-indigo-400'}`} />
+      {done ? (
+        <span>Followed up {reminder.completed_at ? ago(reminder.completed_at) : ''}</span>
+      ) : (
+        <>
+          <span className="text-slate-100">
+            Follow up {fmtDate(reminder.due_at)}
+            {days === 0 ? ' · today' : days > 0 ? ` · in ${days}d` : ` · ${-days}d overdue`}
+          </span>
+          <button
+            className="text-slate-500 hover:text-emerald-400"
+            onClick={() => complete.mutate(reminder)}
+            aria-label="Mark follow-up done"
+            title="Done"
+          >
+            <Icon name="check" className="w-3.5 h-3.5" />
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function ContactProfile() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { data: contact, isLoading } = useContact(id!)
   const { data: interactions } = useInteractions(id!)
   const { data: reminders } = useOpenReminders()
+  const { data: followUps } = useFollowUps(id!)
   const del = useMut(api.deleteContact)
   const setFavorite = useMut(api.setFavorite)
   const deleteInteraction = useMut(api.deleteInteraction)
@@ -1031,6 +1070,7 @@ export function ContactProfile() {
 
   const kitDays = kitDueInDays(contact)
   const contactReminders = (reminders ?? []).filter((r) => r.contact_id === contact.id)
+  const followUpOf = new Map((followUps ?? []).map((r) => [r.interaction_id, r]))
 
   const onDelete = async () => {
     if (!window.confirm(`Delete ${fullName(contact)} and all their notes, reminders, and details? This cannot be undone.`)) return
@@ -1223,6 +1263,7 @@ export function ContactProfile() {
                         </div>
                       </div>
                     )}
+                    {followUpOf.get(i.id) && <FollowUp reminder={followUpOf.get(i.id)!} />}
                     {others.length > 0 && (
                       <p className="text-xs text-slate-500 mt-1">
                         with{' '}

@@ -99,6 +99,8 @@ export type Reminder = {
   snoozed_until: string | null
   source: ReminderSource
   completed_at: string | null
+  /** The timeline entry this follow-up was promised at, when it came from one. */
+  interaction_id?: string | null
   contacts?: { id: string; first_name: string; last_name: string | null } | null
 }
 
