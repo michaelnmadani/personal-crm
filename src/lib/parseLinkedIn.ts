@@ -38,6 +38,12 @@ const NOISE_RE =
 /** "6 yrs 2 mos", "1 yr", "11 mos" — a duration on its own says nothing useful. */
 const DURATION_RE = /^\d+\s*(yrs?|years?|mos?|months?)(\s+\d+\s*(mos?|months?))?$/i
 
+/** "Skills: Board Governance, +13 skills" — LinkedIn prints these under a role. */
+const SKILLS_RE = /^skills?\s*[:·]/i
+
+/** The glyph someone started a line of their own role description with. */
+const DESC_BULLET_RE = /^[•■▪●○‣–—-]\s/
+
 /** Strip LinkedIn's trailing "· 5 yrs 5 mos" and any employment type after a dot. */
 const beforeDot = (s: string) => s.split('·')[0].trim()
 
@@ -64,16 +70,25 @@ const isLogoAlt = (line: string) => /^.{1,60}\slogo$/i.test(line)
 
 function isNoise(line: string) {
   const bare = beforeDot(line)
+  return line.length === 0 || NOISE_RE.test(bare) || NOISE_RE.test(line) || DURATION_RE.test(bare) || isLogoAlt(bare)
+}
+
+/**
+ * Is this a line of the *body* of an entry — the description, or the skills
+ * listed under it — rather than one of the heading lines above its dates?
+ *
+ * This matters because the parser reads backwards from a date line, and the
+ * lines it walks over on the way are the tail of the entry before. Body lines
+ * are where one entry stops and the next begins, so the walk has to end at
+ * them rather than step over them looking for an employer.
+ */
+function isRoleDetail(line: string) {
   return (
-    line.length === 0 ||
-    NOISE_RE.test(bare) ||
-    NOISE_RE.test(line) ||
-    DURATION_RE.test(bare) ||
-    isLogoAlt(bare) ||
-    // A bullet from a role description, not a title or employer. (Markdown
-    // list markers are handled in normalise, and mean something different.)
-    /^[•–]\s/.test(line) ||
-    line.length > 120
+    SKILLS_RE.test(line) ||
+    DESC_BULLET_RE.test(line) ||
+    line.length > 120 ||
+    // A sentence someone wrote about the job, not a title or an employer.
+    (/[.!?]$/.test(line) && line.split(/\s+/).length >= 6)
   )
 }
 
@@ -121,6 +136,27 @@ function normalise(raw: string): Line[] {
   return out
 }
 
+/**
+ * "Sydney, New South Wales, Australia", "Greater Sydney Area" — where the job
+ * was done. A place reads much like a company, and a job title can carry a
+ * comma too, so this is only ever asked about a line sitting exactly where
+ * LinkedIn puts the location. That position is what makes it safe to be loose.
+ */
+function looksLikeLocation(line: string) {
+  const s = beforeDot(line)
+  if (s.length > 80 || /\d|&|:|\||\bat\b/i.test(s)) return false
+  if (/^greater\b.*\barea$/i.test(s) || /\bmetropolitan area$/i.test(s)) return true
+  const parts = s.split(',').map((p) => p.trim())
+  return parts.length >= 2 && parts.length <= 4 && parts.every((p) => p.length >= 2 && p.length <= 40)
+}
+
+/** Is the line at `j` the location LinkedIn prints under an entry's dates? */
+function isLocationLine(lines: Line[], j: number) {
+  const prev = lines[j - 1]
+  if (!prev || (!readPeriod(prev.text) && !isGroupHeading(prev.text))) return false
+  return looksLikeLocation(lines[j].text)
+}
+
 export function parseLinkedInExperience(raw: string): WorkDraft[] {
   const lines = normalise(raw)
 
@@ -129,13 +165,17 @@ export function parseLinkedInExperience(raw: string): WorkDraft[] {
   // under it. Claimed here so the backward walk below doesn't mistake it for
   // a role title.
   let groupCompany: string | null = null
+  // Whether that employer was announced by a heading — meaning we are reading
+  // roles listed under it — or is just the last employer seen.
+  let groupFromHeading = false
   const claimed = new Set<number>()
 
   for (let i = 0; i < lines.length; i++) {
     if (isGroupHeading(lines[i].text)) {
       const above = lines[i - 1]
-      if (above && !readPeriod(above.text) && !isNoise(above.text)) {
+      if (above && !readPeriod(above.text) && !isNoise(above.text) && !isRoleDetail(above.text)) {
         groupCompany = beforeDot(above.text)
+        groupFromHeading = true
         claimed.add(i - 1)
       }
       continue
@@ -152,6 +192,12 @@ export function parseLinkedInExperience(raw: string): WorkDraft[] {
     for (let j = i - 1; j >= 0 && above.length < 2; j--) {
       // The previous role, or the heading of this group — either way, a wall.
       if (readPeriod(lines[j].text) || isGroupHeading(lines[j].text)) break
+      // The body of the entry above: everything before it belongs to that one.
+      if (isRoleDetail(lines[j].text)) break
+      // Inside a grouped block the line under the heading (or under the dates
+      // of the role before) is a location, and the role above it is named by
+      // the heading — so there is no employer to find here.
+      if (above.length === 1 && groupFromHeading && isLocationLine(lines, j)) break
       if (claimed.has(j) || isNoise(lines[j].text)) continue
       above.unshift(lines[j].text)
       if (lines[j].bullet) {
@@ -167,10 +213,12 @@ export function parseLinkedInExperience(raw: string): WorkDraft[] {
       title = above[above.length - 1]
       company = groupCompany
     } else if (above.length >= 2) {
-      // Title then employer, LinkedIn's usual order.
+      // Title then employer, LinkedIn's usual order. An entry that names its
+      // own employer is also how a grouped block ends.
       title = above[0]
       company = beforeDot(above[1])
       groupCompany = company
+      groupFromHeading = false
     } else if (above.length === 1) {
       // One line: inside a grouped block that's the role, and the employer is
       // the heading above it. Otherwise take it as the employer.
