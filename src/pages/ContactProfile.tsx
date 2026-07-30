@@ -140,6 +140,12 @@ function MergeModal({ contact, onClose }: { contact: ContactOverview; onClose: (
  */
 const COLUMNS = 'grid gap-x-5 gap-y-1.5 lg:grid-cols-2'
 
+/**
+ * Plain names — a connections list — need less room each, so let the panel fit
+ * as many columns as it can rather than settling on a fixed two.
+ */
+const NAME_COLUMNS = 'grid gap-x-4 gap-y-1.5 grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]'
+
 const RELATIONS: Relation[] = ['spouse', 'partner', 'child', 'parent', 'sibling', 'pet', 'other']
 const GROUP_TYPES: GroupType[] = ['company', 'church', 'sports', 'school', 'club', 'nonprofit', 'family', 'other']
 
@@ -284,7 +290,15 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
   const [draft, setDraft] = useState('')
 
   const byId = new Map((contacts ?? []).map((c) => [c.id, c]))
-  const mine = (rels ?? []).filter((r) => r.from_contact === contactId || r.to_contact === contactId)
+  // Paired with the person at the other end and sorted by name, so a long list
+  // can be scanned for someone rather than read through.
+  const mine = (rels ?? [])
+    .flatMap((r) => {
+      if (r.from_contact !== contactId && r.to_contact !== contactId) return []
+      const person = byId.get(r.from_contact === contactId ? r.to_contact : r.from_contact)
+      return person ? [{ rel: r, person }] : []
+    })
+    .sort((a, b) => fullName(a.person).localeCompare(fullName(b.person)))
   const options = (contacts ?? []).filter((c) => c.id !== contactId)
 
   const submit = async (e: React.FormEvent) => {
@@ -316,16 +330,13 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
           </button>
         </div>
       </div>
-      <ul className={COLUMNS}>
-        {mine.map((r) => {
-          const otherId = r.from_contact === contactId ? r.to_contact : r.from_contact
-          const person = byId.get(otherId)
-          if (!person) return null
+      <ul className={NAME_COLUMNS}>
+        {mine.map(({ rel: r, person }) => {
           return (
             // Editing needs the room, so that one takes the full width back.
-            <li key={r.id} className={`text-sm group ${editing === r.id ? 'lg:col-span-2' : ''}`}>
+            <li key={r.id} className={`text-sm group ${editing === r.id ? 'col-span-full' : ''}`}>
               <div className="flex items-center gap-2">
-                <Link to={`/contacts/${person.id}`} className="text-slate-200 hover:text-indigo-300">
+                <Link to={`/contacts/${person.id}`} className="text-slate-200 hover:text-indigo-300 truncate">
                   {fullName(person)}
                 </Link>
                 <button
@@ -372,7 +383,7 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
             </li>
           )
         })}
-        {mine.length === 0 && !adding && <li className="text-sm text-slate-600 lg:col-span-2">None yet.</li>}
+        {mine.length === 0 && !adding && <li className="text-sm text-slate-600 col-span-full">None yet.</li>}
       </ul>
       {adding && (
         <form onSubmit={submit} className="mt-2 space-y-2 border-t border-slate-800 pt-2">
