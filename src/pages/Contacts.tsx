@@ -3,8 +3,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api, useAllContactTags, useContacts, useMut, usePhotoUrls } from '../lib/hooks'
 import { ago, fmtDateTime, fullName, kitOverdue } from '../lib/utils'
 import { Avatar } from '../components/Avatar'
+import { ContactForm } from '../components/ContactForm'
 import { Icon } from '../components/Icon'
-import { btnPrimary, card, chip, input } from '../components/ui'
+import { btnGhost, btnPrimary, card, chip, input } from '../components/ui'
 
 type Filter = 'all' | 'business' | 'personal' | 'overdue' | 'favorites'
 type Sort = 'modified' | 'name' | 'recent' | 'added'
@@ -33,6 +34,7 @@ export function Contacts() {
   const setFavorite = useMut(api.setFavorite)
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
+  const [creating, setCreating] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
   const [sort, setSort] = useState<Sort>('modified')
   const [view, setView] = useState<View>(() => (localStorage.getItem('contactsView') === 'tiles' ? 'tiles' : 'rows'))
@@ -140,6 +142,9 @@ export function Contacts() {
             <Icon name="plus" className="w-4 h-4" /> Add
           </button>
         </form>
+        <button type="button" className={btnGhost} onClick={() => setCreating(true)} title="Open a full new-contact form">
+          New contact
+        </button>
         <select className={`${input} w-auto`} value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
           <option value="modified">Recently modified</option>
           <option value="name">A–Z</option>
@@ -288,6 +293,7 @@ export function Contacts() {
           ))}
         </ul>
       )}
+      {creating && <ContactForm onClose={() => setCreating(false)} />}
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Contact, ContactKind, LabeledValue } from '../lib/types'
 import { api, useMut } from '../lib/hooks'
 import { NO_YEAR } from '../lib/utils'
+import { parseLinkedInProfile } from '../lib/parseLinkedIn'
 import { Modal } from './Modal'
 import { Icon } from './Icon'
 import { btnGhost, btnPrimary, input, label } from './ui'
@@ -97,10 +98,32 @@ export function ContactForm({ contact, onClose }: { contact?: Contact; onClose: 
   })
   const [emails, setEmails] = useState<LabeledValue[]>(contact?.emails ?? [])
   const [phones, setPhones] = useState<LabeledValue[]>(contact?.phones ?? [])
+  const [pasting, setPasting] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+  const [pasteError, setPasteError] = useState(false)
   const save = useMut(api.saveContact)
 
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setF({ ...f, [k]: e.target.value })
+
+  const readPaste = () => {
+    const draft = parseLinkedInProfile(pasteText)
+    if (!draft) {
+      setPasteError(true)
+      return
+    }
+    setF({
+      ...f,
+      first_name: draft.first_name,
+      last_name: draft.last_name ?? '',
+      title: draft.title ?? f.title,
+      company: draft.company ?? f.company,
+      location: draft.location ?? f.location,
+    })
+    setPasting(false)
+    setPasteText('')
+    setPasteError(false)
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -130,6 +153,56 @@ export function ContactForm({ contact, onClose }: { contact?: Contact; onClose: 
   return (
     <Modal title={contact ? 'Edit contact' : 'New contact'} onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
+        {!contact && (
+          <div className="border-b border-slate-800 pb-3">
+            {!pasting ? (
+              <button
+                type="button"
+                className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
+                onClick={() => setPasting(true)}
+              >
+                Paste from LinkedIn
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <textarea
+                  className={`${input} h-24 font-mono text-xs`}
+                  placeholder="Paste the top of their LinkedIn profile — name, headline, location…"
+                  value={pasteText}
+                  onChange={(e) => {
+                    setPasteText(e.target.value)
+                    setPasteError(false)
+                  }}
+                  autoFocus
+                />
+                {pasteError && (
+                  <p className="text-sm text-red-400">Couldn't find a name in that. Paste the profile's name and headline.</p>
+                )}
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
+                    onClick={readPaste}
+                    disabled={!pasteText.trim()}
+                  >
+                    Read it
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-slate-500 hover:text-slate-300"
+                    onClick={() => {
+                      setPasting(false)
+                      setPasteText('')
+                      setPasteError(false)
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <span className={label}>First name *</span>

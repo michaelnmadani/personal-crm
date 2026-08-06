@@ -45,7 +45,7 @@ const SKILLS_RE = /^skills?\s*[:·]/i
 const DESC_BULLET_RE = /^[•■▪●○‣–—-]\s/
 
 /** Strip LinkedIn's trailing "· 5 yrs 5 mos" and any employment type after a dot. */
-const beforeDot = (s: string) => s.split('·')[0].trim()
+export const beforeDot = (s: string) => s.split('·')[0].trim()
 
 const yearIn = (s: string) => {
   const m = s.match(/\d{4}/)
@@ -119,7 +119,7 @@ type Line = {
  * The links and images are stripped; the marker is kept, because it is the one
  * signal that tells a role title apart from an employer name.
  */
-function normalise(raw: string): Line[] {
+export function normalise(raw: string): Line[] {
   const out: Line[] = []
   for (const original of raw.split(/\r?\n/)) {
     const text = original
@@ -142,7 +142,7 @@ function normalise(raw: string): Line[] {
  * comma too, so this is only ever asked about a line sitting exactly where
  * LinkedIn puts the location. That position is what makes it safe to be loose.
  */
-function looksLikeLocation(line: string) {
+export function looksLikeLocation(line: string) {
   const s = beforeDot(line)
   if (s.length > 80 || /\d|&|:|\||\bat\b/i.test(s)) return false
   if (/^greater\b.*\barea$/i.test(s) || /\bmetropolitan area$/i.test(s)) return true
@@ -242,6 +242,59 @@ export function parseLinkedInExperience(raw: string): WorkDraft[] {
   }
 
   return dropDuplicates(drafts)
+}
+
+export type ProfileDraft = {
+  first_name: string
+  last_name: string | null
+  title: string | null
+  company: string | null
+  location: string | null
+}
+
+/** Chrome around the name/headline on a copied profile page — never the data itself. */
+const PROFILE_CHROME_RE =
+  /^(message|connect|follow|more|save|report|share profile|contact info|open to|pending|\d+(st|nd|rd|th)\+?(\s*degree)?( connection)?|\d[\d,]*\+?\s*(connections?|followers?))$/i
+
+const isProfileChrome = (line: string) => PROFILE_CHROME_RE.test(beforeDot(line)) || /^view .*'s profile$/i.test(line)
+
+/**
+ * Turn a paste of a LinkedIn profile's header — name, headline, location — into
+ * a draft for a new contact. Same idea as `parseLinkedInExperience`: best-effort,
+ * anchored on what's reliably in a fixed position, with the caller (the contact
+ * form itself) as the place anything wrong gets edited before it's saved.
+ */
+export function parseLinkedInProfile(raw: string): ProfileDraft | null {
+  const lines = normalise(raw).map((l) => l.text).filter((l) => !isProfileChrome(l))
+  if (lines.length === 0) return null
+
+  const [first, ...rest] = lines[0].trim().split(/\s+/)
+  if (!first) return null
+
+  let title: string | null = null
+  let company: string | null = null
+  let next = 1
+  if (lines[1]) {
+    const headline = beforeDot(lines[1])
+    const atMatch = headline.match(/^(.*?)\s+at\s+(.+)$/i)
+    if (atMatch) {
+      title = atMatch[1].trim()
+      company = atMatch[2].trim()
+    } else {
+      title = headline.split('|')[0].trim() || null
+    }
+    next = 2
+  }
+
+  const location = lines[next] && looksLikeLocation(lines[next]) ? beforeDot(lines[next]) : null
+
+  return {
+    first_name: first,
+    last_name: rest.join(' ') || null,
+    title,
+    company,
+    location,
+  }
 }
 
 /** Identity of an entry for duplicate purposes. */
