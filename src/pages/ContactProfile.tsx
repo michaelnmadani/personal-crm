@@ -285,6 +285,7 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
   const remove = useMut(api.deleteRelationship)
   const setNote = useMut(api.setRelationshipNote)
   const [adding, setAdding] = useState(false)
+  const [pasting, setPasting] = useState(false)
   const [other, setOther] = useState('')
   const [comment, setComment] = useState('')
   // Connection whose comment is being edited, and the draft text for it.
@@ -327,7 +328,23 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
           <Link to={`/network?focus=${contactId}`} className="text-xs text-indigo-400 hover:text-indigo-300">
             open in network
           </Link>
-          <button className="text-xs text-indigo-400 hover:text-indigo-300" onClick={() => setAdding(!adding)}>
+          <button
+            className="text-xs text-indigo-400 hover:text-indigo-300"
+            onClick={() => {
+              setPasting(!pasting)
+              setAdding(false)
+            }}
+            title="Paste LinkedIn's shared-connections panel — matched people join this same list"
+          >
+            {pasting ? 'cancel' : 'paste from LinkedIn'}
+          </button>
+          <button
+            className="text-xs text-indigo-400 hover:text-indigo-300"
+            onClick={() => {
+              setAdding(!adding)
+              setPasting(false)
+            }}
+          >
             {adding ? 'cancel' : '+ add'}
           </button>
         </div>
@@ -387,6 +404,8 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
         })}
         {mine.length === 0 && !adding && <li className="text-sm text-slate-600 col-span-full">None yet.</li>}
       </ul>
+      {pasting && <PasteSharedConnections contactId={contactId} onDone={() => setPasting(false)} />}
+      <SharedConnectionsReview contactId={contactId} />
       {adding && (
         <form onSubmit={submit} className="mt-2 space-y-2 border-t border-slate-800 pt-2">
           <select className={input} value={other} onChange={(e) => setOther(e.target.value)} required>
@@ -567,26 +586,6 @@ function SharedConnectionsReview({ contactId }: { contactId: string }) {
         )
       })}
     </ul>
-  )
-}
-
-function SharedConnectionsSection({ contactId }: { contactId: string }) {
-  const [pasting, setPasting] = useState(false)
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shared connections</h3>
-        <button
-          className="text-xs text-indigo-400 hover:text-indigo-300"
-          onClick={() => setPasting(!pasting)}
-          title="Paste LinkedIn's shared-connections panel"
-        >
-          {pasting ? 'cancel' : 'paste from LinkedIn'}
-        </button>
-      </div>
-      {pasting && <PasteSharedConnections contactId={contactId} onDone={() => setPasting(false)} />}
-      <SharedConnectionsReview contactId={contactId} />
-    </div>
   )
 }
 
@@ -1379,7 +1378,6 @@ export function ContactProfile() {
         <div className={`${card} p-4 space-y-5`}>
           <GroupsSection contactId={contact.id} />
           <ConnectionsSection contactId={contact.id} />
-          <SharedConnectionsSection contactId={contact.id} />
           <WorkHistoryEditor contactId={contact.id} />
           <FamilyEditor contactId={contact.id} />
           <FactsEditor contactId={contact.id} />
