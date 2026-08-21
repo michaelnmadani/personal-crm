@@ -343,9 +343,11 @@ export function parseSharedConnections(raw: string): SharedConnectionDraft[] {
   const results: SharedConnectionDraft[] = []
 
   for (let i = 0; i < lines.length; i++) {
-    // A window starting on a chrome line (a stray "Message" sitting right
-    // before the real summary) must never be glued onto what follows it.
-    const collapsed = isProfileChrome(lines[i]) ? null : collapsedMatchAt(lines, i)
+    // A window starting on a chrome line ("Message") or a location line
+    // ("Greater Sydney Area") must never be glued onto what follows it — both
+    // routinely sit right before the real summary line in a real paste.
+    const skipStart = isProfileChrome(lines[i]) || looksLikeLocation(lines[i])
+    const collapsed = skipStart ? null : collapsedMatchAt(lines, i)
     if (collapsed) {
       for (const part of collapsed[1].split(',')) {
         const name = part.trim()
