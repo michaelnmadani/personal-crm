@@ -256,7 +256,8 @@ export type ProfileDraft = {
 const PROFILE_CHROME_RE =
   /^(message|connect|follow|more|save|report|share profile|contact info|open to|pending|\d+(st|nd|rd|th)\+?(\s*degree)?( connection)?|\d[\d,]*\+?\s*(connections?|followers?))$/i
 
-const isProfileChrome = (line: string) => PROFILE_CHROME_RE.test(beforeDot(line)) || /^view .*'s profile$/i.test(line)
+export const isProfileChrome = (line: string) =>
+  PROFILE_CHROME_RE.test(beforeDot(line)) || /^view .*'s profile$/i.test(line)
 
 /**
  * Turn a paste of a LinkedIn profile's header — name, headline, location — into
@@ -295,6 +296,86 @@ export function parseLinkedInProfile(raw: string): ProfileDraft | null {
     company,
     location,
   }
+}
+
+export type SharedConnectionDraft = { name: string; headline: string | null }
+
+/** "1st", "2nd", "3rd+", "3rd degree connection" — LinkedIn's badge for how close a connection is. */
+const DEGREE_RE = /^\d+(st|nd|rd|th)\+?(\s*degree)?(\s*connection)?$/i
+
+/** "Show all 14 mutual connections", or a bare "12 mutual connections" — a count, never a person. */
+const MUTUAL_COUNT_RE = /mutual connections?/i
+
+/**
+ * LinkedIn's collapsed preview: a couple of named people plus a count of the
+ * rest, e.g. "Con Prassopoulos, Brendan Manning & 12 other mutual connections".
+ * Shown unless "Show all N mutual connections" was clicked before copying.
+ */
+const COLLAPSED_RE = /^(.+?)\s*&\s*\d+\s+other mutual connections?\.?$/i
+
+/** A plausible "First Last" name shape — the fallback when nothing else anchors a line to a person. */
+const NAME_SHAPE_RE = /^\p{Lu}[\p{L}'.-]*(?:\s+\p{Lu}[\p{L}'.-]*){1,3}$/u
+
+/**
+ * The "& N other mutual connections" tail can land split across two or three
+ * physical lines — copying a narrow LinkedIn panel often wraps with a real
+ * line break, not just a visual one. Try the line alone first, then joined
+ * with what follows, before giving up on it.
+ */
+const collapsedMatchAt = (lines: string[], i: number) =>
+  lines[i].match(COLLAPSED_RE) ??
+  (lines[i + 1] !== undefined ? `${lines[i]} ${lines[i + 1]}`.match(COLLAPSED_RE) : null) ??
+  (lines[i + 2] !== undefined ? `${lines[i]} ${lines[i + 1]} ${lines[i + 2]}`.match(COLLAPSED_RE) : null)
+
+/**
+ * Turn a paste of LinkedIn's "shared connections" panel into candidate
+ * people — same spirit as `parseLinkedInExperience`: anchor on what's
+ * reliably in a fixed position, drop anything that can't be placed, and let
+ * the review table (not this function) be where anything wrong gets fixed.
+ *
+ * The expanded list anchors on each person's degree badge (name above it,
+ * headline below); the collapsed preview anchors on its "& N other mutual
+ * connections" tail instead. If neither shows up anywhere — a plain list of
+ * names with nothing else — fall back to lines that are simply name-shaped.
+ */
+export function parseSharedConnections(raw: string): SharedConnectionDraft[] {
+  const lines = normalise(raw).map((l) => l.text)
+  const results: SharedConnectionDraft[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    // A window starting on a chrome line (a stray "Message" sitting right
+    // before the real summary) must never be glued onto what follows it.
+    const collapsed = isProfileChrome(lines[i]) ? null : collapsedMatchAt(lines, i)
+    if (collapsed) {
+      for (const part of collapsed[1].split(',')) {
+        const name = part.trim()
+        if (name && !isProfileChrome(name)) results.push({ name, headline: null })
+      }
+      continue
+    }
+
+    if (!DEGREE_RE.test(lines[i])) continue
+    const name = lines[i - 1]
+    if (!name || isProfileChrome(name)) continue
+    const next = lines[i + 1]
+    const headline = next && !isProfileChrome(next) && !DEGREE_RE.test(next) && !COLLAPSED_RE.test(next) ? next : null
+    results.push({ name, headline })
+  }
+
+  if (results.length === 0) {
+    for (const line of lines) {
+      if (isProfileChrome(line) || MUTUAL_COUNT_RE.test(line) || COLLAPSED_RE.test(line)) continue
+      if (NAME_SHAPE_RE.test(line)) results.push({ name: line, headline: null })
+    }
+  }
+
+  const seen = new Set<string>()
+  return results.filter((r) => {
+    const key = r.name.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 /** Identity of an entry for duplicate purposes. */

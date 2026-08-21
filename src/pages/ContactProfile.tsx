@@ -21,8 +21,7 @@ import {
   useSharedConnectionCandidates,
   useWorkHistory,
 } from '../lib/hooks'
-import { parseLinkedInExperience, workKey, type WorkDraft } from '../lib/parseLinkedIn'
-import { OllamaParseError, OllamaUnavailableError, parseSharedConnections } from '../lib/parseSharedConnections'
+import { parseLinkedInExperience, parseSharedConnections, workKey, type WorkDraft } from '../lib/parseLinkedIn'
 import { ageOf, ago, daysUntil, fmtBirthday, fmtDate, fmtDateTime, fullName, kitDueInDays, nextOccurrence, turningAge } from '../lib/utils'
 import { Avatar } from '../components/Avatar'
 import { ContactForm } from '../components/ContactForm'
@@ -416,38 +415,24 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
 type CandidateEdit = { name: string; headline: string }
 
 /**
- * Paste box for LinkedIn's "shared connections" panel. Ollama runs on the
- * user's own machine — never a server call, since a deployed server has no
- * way to reach their localhost — so parsing happens straight from the
- * browser. A failed read never drops the paste: the textarea stays exactly
- * as typed so the user can edit and retry rather than starting over.
+ * Paste box for LinkedIn's "shared connections" panel — parsed the same way
+ * as the work-history paste box, purely client-side, no network call. A
+ * failed read never drops the paste: the textarea stays exactly as typed so
+ * the user can edit and retry rather than starting over.
  */
 function PasteSharedConnections({ contactId, onDone }: { contactId: string; onDone: () => void }) {
   const addCandidates = useMut(api.addSharedConnectionCandidates)
   const [text, setText] = useState('')
-  const [reading, setReading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState(false)
 
-  const read = async () => {
-    setError(null)
-    setReading(true)
-    try {
-      const parsed = await parseSharedConnections(text)
-      if (parsed.length === 0) {
-        setError("Couldn't find anyone in that paste.")
-        return
-      }
-      await addCandidates.mutateAsync(
-        parsed.map((p) => ({ contact_id: contactId, raw_name: p.name, headline: p.headline })),
-      )
-      onDone()
-    } catch (e) {
-      if (e instanceof OllamaUnavailableError) setError('Start Ollama and try again.')
-      else if (e instanceof OllamaParseError) setError("Couldn't read the model's response — edit the paste and try again.")
-      else setError((e as Error).message)
-    } finally {
-      setReading(false)
+  const read = () => {
+    const parsed = parseSharedConnections(text)
+    if (parsed.length === 0) {
+      setError(true)
+      return
     }
+    addCandidates.mutate(parsed.map((p) => ({ contact_id: contactId, raw_name: p.name, headline: p.headline })))
+    onDone()
   }
 
   return (
@@ -456,17 +441,22 @@ function PasteSharedConnections({ contactId, onDone }: { contactId: string; onDo
         className={`${input} h-32 font-mono text-xs`}
         placeholder="Paste LinkedIn's shared connections panel…"
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value)
+          setError(false)
+        }}
         autoFocus
       />
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && (
+        <p className="text-sm text-red-400">
+          Couldn't find anyone in that. Each person needs a degree badge (1st/2nd/3rd), or the "X, Y & N other mutual
+          connections" summary line.
+        </p>
+      )}
+      {addCandidates.isError && <p className="text-sm text-red-400">{(addCandidates.error as Error).message}</p>}
       <div className="flex gap-3">
-        <button
-          className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
-          onClick={read}
-          disabled={!text.trim() || reading}
-        >
-          {reading ? 'Reading…' : 'Read it'}
+        <button className="text-xs text-indigo-400 hover:text-indigo-300 font-medium" onClick={read} disabled={!text.trim()}>
+          Read it
         </button>
         <button className="text-xs text-slate-500 hover:text-slate-300" onClick={onDone}>
           Cancel

@@ -41,21 +41,6 @@ First launch: create your account on the sign-in screen — it's your private da
 account, enforced by RLS. Optionally disable further signups in Supabase (Auth → Providers)
 once your account exists.
 
-### Shared connections (optional, local only)
-
-Turning a pasted LinkedIn "shared connections" list into contact suggestions uses a small
-model over [Ollama](https://ollama.com), running on your own machine — the CRM never sends
-that paste anywhere else, and a deployed build can't reach it unless you're the one running
-both. To use it:
-
-```
-ollama pull llama3.1:8b-instruct
-OLLAMA_ORIGINS=http://localhost:5173,https://personal-crm-seven-fawn.vercel.app ollama serve
-```
-
-Without Ollama running, the paste box just shows "Start Ollama and try again" — nothing else
-in the app depends on it.
-
 ## Development
 
 - `npm install` — install dependencies
