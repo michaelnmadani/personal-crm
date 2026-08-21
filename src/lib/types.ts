@@ -132,10 +132,35 @@ export type GroupMember = {
   contacts?: { id: string; first_name: string; last_name: string | null; photo_url: string | null } | null
 }
 
+export type RelationshipSource = 'manual' | 'linkedin_shared'
+
 export type Relationship = {
   id: string
   from_contact: string
   to_contact: string
   /** Optional free-text comment about how the two are connected. */
   notes: string | null
+  source: RelationshipSource
 }
+
+export type SharedConnectionCandidateStatus = 'pending' | 'confirmed' | 'ignored'
+
+/** A name parsed out of a pasted LinkedIn "shared connections" list, awaiting review. */
+export type SharedConnectionCandidate = {
+  id: string
+  contact_id: string
+  raw_name: string
+  headline: string | null
+  matched_contact_id: string | null
+  status: SharedConnectionCandidateStatus
+  parsed_at: string
+}
+
+export type ContactMatch = {
+  id: string
+  first_name: string
+  last_name: string | null
+  company: string | null
+  score: number
+}
+

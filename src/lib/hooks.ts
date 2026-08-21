@@ -1,10 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { addDays } from 'date-fns'
 import { supabase } from './supabase'
 import { resizeImage } from './image'
 import type { ImportRow } from './importCsv'
 import type {
   Contact,
+  ContactMatch,
   ContactOverview,
   ContactTag,
   Fact,
@@ -16,7 +17,9 @@ import type {
   Interaction,
   InteractionKind,
   Relationship,
+  RelationshipSource,
   Reminder,
+  SharedConnectionCandidate,
   Tag,
   WorkHistory,
 } from './types'
@@ -272,6 +275,33 @@ export const useRelationships = () =>
     queryFn: () => q<Relationship[]>(supabase.from('relationships').select('*')),
   })
 
+export const useSharedConnectionCandidates = (contactId: string) =>
+  useQuery({
+    queryKey: ['sharedCandidates', contactId],
+    queryFn: () =>
+      q<SharedConnectionCandidate[]>(
+        supabase
+          .from('shared_connection_candidates')
+          .select('*')
+          .eq('contact_id', contactId)
+          .eq('status', 'pending')
+          .order('parsed_at'),
+      ),
+  })
+
+/** Ranked fuzzy-match suggestions per name, for the shared-connections review table. */
+export const useContactMatches = (names: string[]) => {
+  const unique = [...new Set(names.map((n) => n.trim()).filter(Boolean))].sort()
+  return useQueries({
+    queries: unique.map((name) => ({
+      queryKey: ['contactMatch', name],
+      queryFn: () => q<ContactMatch[]>(supabase.rpc('match_contacts_by_name', { p_query: name, p_limit: 5 })),
+      staleTime: 60_000,
+    })),
+    combine: (results) => Object.fromEntries(unique.map((name, i) => [name, results[i].data ?? []])),
+  })
+}
+
 /** Signed URLs for contact photos (private bucket). Keyed by storage path. */
 export const usePhotoUrls = (paths: (string | null | undefined)[]) => {
   const valid = [...new Set(paths.filter((p): p is string => !!p))].sort()
@@ -374,7 +404,12 @@ export const api = {
    * than inserting a second one — a duplicate would draw two lines on the
    * network graph, and the unique index would reject it anyway.
    */
-  async addRelationship(r: { from_contact: string; to_contact: string; notes?: string | null }) {
+  async addRelationship(r: {
+    from_contact: string
+    to_contact: string
+    notes?: string | null
+    source?: RelationshipSource
+  }) {
     const notes = r.notes?.trim() || null
     const existing = await q<Relationship[]>(
       supabase
@@ -388,7 +423,8 @@ export const api = {
     if (existing[0]) {
       // Already linked, and the link itself carries nothing to change. Only
       // touch the comment when a new one was actually typed, so reconnecting a
-      // pair doesn't wipe what's already written there.
+      // pair doesn't wipe what's already written there. Provenance of an
+      // already-real connection isn't overwritten by a later match either.
       if (!notes) return existing[0]
       return q<Relationship>(
         supabase.from('relationships').update({ notes }).eq('id', existing[0].id).select().single(),
@@ -397,7 +433,7 @@ export const api = {
     return q<Relationship>(
       supabase
         .from('relationships')
-        .insert({ from_contact: r.from_contact, to_contact: r.to_contact, notes })
+        .insert({ from_contact: r.from_contact, to_contact: r.to_contact, notes, source: r.source ?? 'manual' })
         .select()
         .single(),
     )
@@ -413,6 +449,66 @@ export const api = {
         .single(),
     ),
   deleteRelationship: (id: string) => q<null>(supabase.from('relationships').delete().eq('id', id)),
+
+  /**
+   * Stage parsed names for review. `status` is deliberately left out of the
+   * payload: on conflict, only `headline`/`parsed_at` are refreshed, so a
+   * re-paste can't reset an already-confirmed or -ignored row back to pending.
+   */
+  addSharedConnectionCandidates: (rows: { contact_id: string; raw_name: string; headline: string | null }[]) =>
+    q<SharedConnectionCandidate[]>(
+      supabase
+        .from('shared_connection_candidates')
+        .upsert(rows, { onConflict: 'contact_id,raw_name' })
+        .select(),
+    ),
+
+  ignoreSharedConnectionCandidate: (id: string) =>
+    q<SharedConnectionCandidate>(
+      supabase.from('shared_connection_candidates').update({ status: 'ignored' }).eq('id', id).select().single(),
+    ),
+
+  async linkSharedConnectionCandidate({
+    candidateId,
+    contactId,
+    targetContactId,
+  }: {
+    candidateId: string
+    contactId: string
+    targetContactId: string
+  }) {
+    await this.addRelationship({ from_contact: contactId, to_contact: targetContactId, source: 'linkedin_shared' })
+    return q<SharedConnectionCandidate>(
+      supabase
+        .from('shared_connection_candidates')
+        .update({ status: 'confirmed', matched_contact_id: targetContactId })
+        .eq('id', candidateId)
+        .select()
+        .single(),
+    )
+  },
+
+  /** No profile URL to match on for a fresh stub — tagged so it reads as LinkedIn-sourced and worth a look. */
+  async createContactFromSharedConnectionCandidate({
+    candidateId,
+    contactId,
+    first_name,
+    last_name,
+    headline,
+  }: {
+    candidateId: string
+    contactId: string
+    first_name: string
+    last_name: string | null
+    headline: string | null
+  }) {
+    const created = await q<Contact>(
+      supabase.from('contacts').insert({ first_name, last_name, title: headline, kind: 'business' }).select().single(),
+    )
+    const tag = await this._ensureTag('LinkedIn')
+    if (tag) await q(supabase.from('contact_tags').insert({ contact_id: created.id, tag_id: tag.id }))
+    return this.linkSharedConnectionCandidate({ candidateId, contactId, targetContactId: created.id })
+  },
 
   async uploadPhoto({ contact, file }: { contact: Contact; file: File }) {
     const blob = await resizeImage(file, 512)
