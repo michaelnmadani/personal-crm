@@ -1,12 +1,11 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { format } from 'date-fns'
-import type { ContactOverview, GroupType, Interaction, Relation, Reminder, SharedConnectionCandidate, WorkHistory } from '../lib/types'
+import type { ContactOverview, GroupType, Interaction, Relation, Reminder, WorkHistory } from '../lib/types'
 import {
   api,
   useContact,
   useContactGroups,
-  useContactMatches,
   useContacts,
   useContactTags,
   useFacts,
@@ -18,10 +17,9 @@ import {
   useOpenReminders,
   usePhotoUrls,
   useRelationships,
-  useSharedConnectionCandidates,
   useWorkHistory,
 } from '../lib/hooks'
-import { parseLinkedInExperience, parseSharedConnections, workKey, type WorkDraft } from '../lib/parseLinkedIn'
+import { parseLinkedInExperience, workKey, type WorkDraft } from '../lib/parseLinkedIn'
 import { ageOf, ago, daysUntil, fmtBirthday, fmtDate, fmtDateTime, fullName, kitDueInDays, nextOccurrence, turningAge } from '../lib/utils'
 import { Avatar } from '../components/Avatar'
 import { ContactForm } from '../components/ContactForm'
@@ -285,7 +283,6 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
   const remove = useMut(api.deleteRelationship)
   const setNote = useMut(api.setRelationshipNote)
   const [adding, setAdding] = useState(false)
-  const [pasting, setPasting] = useState(false)
   const [other, setOther] = useState('')
   const [comment, setComment] = useState('')
   // Connection whose comment is being edited, and the draft text for it.
@@ -328,23 +325,7 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
           <Link to={`/network?focus=${contactId}`} className="text-xs text-indigo-400 hover:text-indigo-300">
             open in network
           </Link>
-          <button
-            className="text-xs text-indigo-400 hover:text-indigo-300"
-            onClick={() => {
-              setPasting(!pasting)
-              setAdding(false)
-            }}
-            title="Paste LinkedIn's shared-connections panel — matched people join this same list"
-          >
-            {pasting ? 'cancel' : 'paste from LinkedIn'}
-          </button>
-          <button
-            className="text-xs text-indigo-400 hover:text-indigo-300"
-            onClick={() => {
-              setAdding(!adding)
-              setPasting(false)
-            }}
-          >
+          <button className="text-xs text-indigo-400 hover:text-indigo-300" onClick={() => setAdding(!adding)}>
             {adding ? 'cancel' : '+ add'}
           </button>
         </div>
@@ -404,8 +385,6 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
         })}
         {mine.length === 0 && !adding && <li className="text-sm text-slate-600 col-span-full">None yet.</li>}
       </ul>
-      {pasting && <PasteSharedConnections contactId={contactId} onDone={() => setPasting(false)} />}
-      <SharedConnectionsReview contactId={contactId} />
       {adding && (
         <form onSubmit={submit} className="mt-2 space-y-2 border-t border-slate-800 pt-2">
           <select className={input} value={other} onChange={(e) => setOther(e.target.value)} required>
@@ -428,164 +407,6 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
         </form>
       )}
     </div>
-  )
-}
-
-type CandidateEdit = { name: string; headline: string }
-
-/**
- * Paste box for LinkedIn's "shared connections" panel — parsed the same way
- * as the work-history paste box, purely client-side, no network call. A
- * failed read never drops the paste: the textarea stays exactly as typed so
- * the user can edit and retry rather than starting over.
- */
-function PasteSharedConnections({ contactId, onDone }: { contactId: string; onDone: () => void }) {
-  const addCandidates = useMut(api.addSharedConnectionCandidates)
-  const [text, setText] = useState('')
-  const [error, setError] = useState(false)
-
-  const read = () => {
-    const parsed = parseSharedConnections(text)
-    if (parsed.length === 0) {
-      setError(true)
-      return
-    }
-    addCandidates.mutate(parsed.map((p) => ({ contact_id: contactId, raw_name: p.name, headline: p.headline })))
-    onDone()
-  }
-
-  return (
-    <div className="mt-2 space-y-2 border-t border-slate-800 pt-2">
-      <textarea
-        className={`${input} h-32 font-mono text-xs`}
-        placeholder="Paste LinkedIn's shared connections panel…"
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value)
-          setError(false)
-        }}
-        autoFocus
-      />
-      {error && (
-        <p className="text-sm text-red-400">
-          Couldn't find anyone in that. Each person needs a degree badge (1st/2nd/3rd), or the "X, Y & N other mutual
-          connections" summary line.
-        </p>
-      )}
-      {addCandidates.isError && <p className="text-sm text-red-400">{(addCandidates.error as Error).message}</p>}
-      <div className="flex gap-3">
-        <button className="text-xs text-indigo-400 hover:text-indigo-300 font-medium" onClick={read} disabled={!text.trim()}>
-          Read it
-        </button>
-        <button className="text-xs text-slate-500 hover:text-slate-300" onClick={onDone}>
-          Cancel
-        </button>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Every staged candidate needs an explicit click — Link existing, Create new,
- * or Ignore — before anything is written. No auto-linking, ever, even for an
- * exact-name match: a parsed name is a claim, not a fact, until reviewed.
- */
-function SharedConnectionsReview({ contactId }: { contactId: string }) {
-  const { data: candidates } = useSharedConnectionCandidates(contactId)
-  const link = useMut(api.linkSharedConnectionCandidate)
-  const createNew = useMut(api.createContactFromSharedConnectionCandidate)
-  const ignore = useMut(api.ignoreSharedConnectionCandidate)
-  const [edits, setEdits] = useState<Record<string, CandidateEdit>>({})
-  const [picks, setPicks] = useState<Record<string, string>>({})
-
-  const rows = candidates ?? []
-  const fieldsFor = (c: SharedConnectionCandidate): CandidateEdit =>
-    edits[c.id] ?? { name: c.raw_name, headline: c.headline ?? '' }
-  const patch = (c: SharedConnectionCandidate, v: Partial<CandidateEdit>) =>
-    setEdits((prev) => ({ ...prev, [c.id]: { ...fieldsFor(c), ...v } }))
-
-  const matches = useContactMatches(rows.map((c) => fieldsFor(c).name))
-
-  if (rows.length === 0) return null
-
-  return (
-    <ul className="space-y-3 border-t border-slate-800 pt-2 mt-2">
-      {rows.map((c) => {
-        const f = fieldsFor(c)
-        const suggestions = matches[f.name] ?? []
-        const pick = picks[c.id] ?? ''
-        return (
-          <li key={c.id} className="space-y-1.5">
-            <div className="flex gap-1.5">
-              <input
-                className={`${input} text-sm`}
-                value={f.name}
-                onChange={(e) => patch(c, { name: e.target.value })}
-                placeholder="Name"
-                aria-label="Name"
-              />
-              <input
-                className={`${input} text-sm`}
-                value={f.headline}
-                onChange={(e) => patch(c, { headline: e.target.value })}
-                placeholder="Headline"
-                aria-label="Headline"
-              />
-            </div>
-            {suggestions.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 items-center">
-                <span className="text-[0.6875rem] text-slate-600">match:</span>
-                {suggestions.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    className={`${chip} ${pick === m.id ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
-                    onClick={() => setPicks((prev) => ({ ...prev, [c.id]: m.id }))}
-                  >
-                    {[m.first_name, m.last_name].filter(Boolean).join(' ')}
-                    {m.company && ` · ${m.company}`}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="flex gap-3">
-              <button
-                type="button"
-                className="text-xs text-indigo-400 hover:text-indigo-300 disabled:opacity-40 disabled:pointer-events-none"
-                disabled={!pick || link.isPending}
-                onClick={() => link.mutate({ candidateId: c.id, contactId, targetContactId: pick })}
-              >
-                Link existing
-              </button>
-              <button
-                type="button"
-                className="text-xs text-indigo-400 hover:text-indigo-300 disabled:opacity-40 disabled:pointer-events-none"
-                disabled={!f.name.trim() || createNew.isPending}
-                onClick={() => {
-                  const [first, ...rest] = f.name.trim().split(/\s+/)
-                  createNew.mutate({
-                    candidateId: c.id,
-                    contactId,
-                    first_name: first,
-                    last_name: rest.join(' ') || null,
-                    headline: f.headline.trim() || null,
-                  })
-                }}
-              >
-                Create new contact
-              </button>
-              <button
-                type="button"
-                className="text-xs text-slate-500 hover:text-slate-300"
-                onClick={() => ignore.mutate(c.id)}
-              >
-                Ignore
-              </button>
-            </div>
-          </li>
-        )
-      })}
-    </ul>
   )
 }
 
