@@ -703,6 +703,8 @@ export function Network() {
   // Redraw when the theme changes so the canvas picks up the new palette — the
   // graph is drawn once to a canvas, so CSS alone can't restyle it.
   const [themeTick, setThemeTick] = useState(0)
+  // Mirrors cy.zoom() so the slider tracks scroll/pinch zoom too, not just its own drags.
+  const [zoomLevel, setZoomLevel] = useState(1)
   // Nodes the user has dragged somewhere of their own choosing. Kept in a ref so
   // moving a node doesn't re-render (and so rebuild) the graph mid-drag; the
   // counter in state is only there to drive the "Reset layout" button.
@@ -1098,6 +1100,9 @@ export function Network() {
     }
     syncLabels()
     cy.on('zoom', syncLabels)
+    // Keep the slider tracking scroll/pinch zoom too, not just its own drags.
+    setZoomLevel(cy.zoom())
+    cy.on('zoom', () => setZoomLevel(cy.zoom()))
 
     for (const id of focusPeople) cy.getElementById(id).addClass('focused')
 
@@ -1350,6 +1355,30 @@ export function Network() {
             nothing. Size it with explicit width/height so position is irrelevant. */}
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
+        {hasAnything && elements.length > 0 && (
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex flex-col items-center gap-1.5 bg-slate-900/80 backdrop-blur border border-slate-700 rounded-full py-3 px-2">
+            <span className="text-sm text-slate-500 select-none leading-none">+</span>
+            <div className="h-28 w-5 flex items-center justify-center">
+              <input
+                type="range"
+                min={0.2}
+                max={3}
+                step={0.05}
+                value={zoomLevel}
+                onChange={(e) => {
+                  const cy = cyRef.current
+                  if (!cy) return
+                  cy.zoom({ level: Number(e.target.value), renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } })
+                }}
+                className="w-28 accent-indigo-500"
+                style={{ transform: 'rotate(-90deg)' }}
+                aria-label="Zoom level"
+              />
+            </div>
+            <span className="text-sm text-slate-500 select-none leading-none">−</span>
+          </div>
+        )}
+
         {(selectedContact || selectedGroup || selectedCompany) && (
           <div className="absolute bottom-3 left-3 right-3 sm:right-auto sm:w-72 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl p-3 z-10">
             <button
@@ -1431,7 +1460,7 @@ export function Network() {
 
       <p className="text-xs text-slate-600">
         Search a name to see just their network, or click a <span className="text-sky-500">company</span> hub to explore
-        everyone there. Drag to pan · scroll to zoom. Blue hubs group people by shared employer; dashed lines are group
+        everyone there. Drag to pan · scroll or the slider on the left to zoom. Blue hubs group people by shared employer; dashed lines are group
         memberships; solid lines are direct connections you've added. Focused on someone, the ring nearest them is who
         they're directly connected to — several circles deep if there are a lot — then a gap, then the people connected to
         those. Anyone linked only by a shared company or group clusters around that pill, outside every band. Line weight matches: bold straight to them, normal between two other
