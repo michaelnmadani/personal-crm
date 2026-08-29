@@ -950,6 +950,14 @@ export function Network() {
       minZoom: 0.2,
       maxZoom: 3,
       wheelSensitivity: 0.3,
+      // The graph has grown well past what full-detail redraw-per-frame can
+      // keep smooth — simplify edges/labels and cache node textures while a
+      // pan or zoom gesture is actually in motion, restoring full fidelity
+      // the instant it settles. Cost scales with element count; interaction
+      // smoothness shouldn't.
+      hideEdgesOnViewport: true,
+      textureOnViewport: true,
+      pixelRatio: 1,
       style: [
         {
           selector: 'node',
