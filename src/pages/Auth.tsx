@@ -5,8 +5,8 @@ import { Icon } from '../components/Icon'
 
 // Single-user app: sign-in only. The one account is provisioned on the backend.
 export function AuthPage() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [email, setEmail] = useState('demo@ducktales-crm.com')
+  const [password, setPassword] = useState('Duckburg2026!')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -49,6 +49,9 @@ export function AuthPage() {
           </button>
         </form>
         <p className="text-center text-xs text-slate-600 mt-4">Your private relationship database — only you can see it.</p>
+        <p className="text-center text-xs text-slate-700 mt-1">
+          Demo login prefilled — clear the fields and sign in with your own account instead.
+        </p>
       </div>
     </div>
   )
