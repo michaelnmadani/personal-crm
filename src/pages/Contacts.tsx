@@ -37,7 +37,7 @@ export function Contacts() {
   const [creating, setCreating] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
   const [sort, setSort] = useState<Sort>('modified')
-  const [view, setView] = useState<View>(() => (localStorage.getItem('contactsView') === 'tiles' ? 'tiles' : 'rows'))
+  const [view, setView] = useState<View>(() => (localStorage.getItem('contactsView') === 'rows' ? 'rows' : 'tiles'))
   const [tileSize, setTileSize] = useState<TileSize>(() => {
     const s = localStorage.getItem('contactsTileSize')
     return s === 'small' || s === 'large' ? s : 'medium'
