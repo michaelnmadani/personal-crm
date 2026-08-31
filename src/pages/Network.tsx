@@ -820,9 +820,19 @@ export function Network() {
       showGroupIds = myGroups
       for (const m of memberships ?? [])
         if (myGroups.has(m.group_id) && poolIds.has(m.contact_id)) peopleIds.add(m.contact_id)
+      // Two levels deep: the centre's direct connections, then those
+      // connections' own direct connections. Colleague/group-mate inclusion
+      // stays one level (centre only) — a different kind of association, and
+      // expanding it too would balloon a big company into the whole graph.
+      const directRelIds = new Set<string>()
       for (const r of rels ?? []) {
-        if (centres.includes(r.from_contact) && poolIds.has(r.to_contact)) peopleIds.add(r.to_contact)
-        if (centres.includes(r.to_contact) && poolIds.has(r.from_contact)) peopleIds.add(r.from_contact)
+        if (centres.includes(r.from_contact) && poolIds.has(r.to_contact)) directRelIds.add(r.to_contact)
+        if (centres.includes(r.to_contact) && poolIds.has(r.from_contact)) directRelIds.add(r.from_contact)
+      }
+      for (const id of directRelIds) peopleIds.add(id)
+      for (const r of rels ?? []) {
+        if (directRelIds.has(r.from_contact) && poolIds.has(r.to_contact)) peopleIds.add(r.to_contact)
+        if (directRelIds.has(r.to_contact) && poolIds.has(r.from_contact)) peopleIds.add(r.from_contact)
       }
       if (peopleIds.size > MAX_PEOPLE + centres.length) {
         const rest = [...peopleIds].filter((id) => !centres.includes(id))
