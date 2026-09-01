@@ -21,10 +21,20 @@ import type {
   WorkHistory,
 } from './types'
 
-/** Unwrap a supabase response, throwing on error. */
+/**
+ * Unwrap a supabase response, throwing on error. A row-level-security
+ * rejection means the signed-in account isn't allowed to write at all (the
+ * public demo login, currently) — surface that plainly rather than the raw
+ * Postgres policy-violation text.
+ */
 async function q<T>(p: PromiseLike<{ data: unknown; error: { message: string } | null }>): Promise<T> {
   const { data, error } = await p
-  if (error) throw new Error(error.message)
+  if (error) {
+    if (error.message.includes('row-level security policy')) {
+      throw new Error("This is a read-only demo — feel free to click around, but nothing saves.")
+    }
+    throw new Error(error.message)
+  }
   return data as T
 }
 
