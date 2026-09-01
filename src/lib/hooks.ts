@@ -38,6 +38,28 @@ async function q<T>(p: PromiseLike<{ data: unknown; error: { message: string } |
   return data as T
 }
 
+/**
+ * Same as q(), but for deletes. A blocked delete doesn't come back as a
+ * Postgres error at all — a delete policy's `using` clause just filters which
+ * rows match, so a delete the RLS policy denies quietly affects zero rows
+ * instead of throwing. Detecting that means the query must `.select()` the
+ * deleted rows so an empty result here can be told apart from a normal
+ * one-row delete.
+ */
+async function qDelete(p: PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<null> {
+  const { data, error } = await p
+  if (error) {
+    if (error.message.includes('row-level security policy')) {
+      throw new Error("This is a read-only demo — feel free to click around, but nothing saves.")
+    }
+    throw new Error(error.message)
+  }
+  if (!data || data.length === 0) {
+    throw new Error("This is a read-only demo — feel free to click around, but nothing saves.")
+  }
+  return null
+}
+
 const INTERACTION_SELECT =
   '*, participants:interaction_participants(contact_id, contacts(id, first_name, last_name))'
 
@@ -325,16 +347,16 @@ export const api = {
     return q(supabase.from('contacts').insert(fields).select().single())
   },
 
-  deleteContact: (id: string) => q<null>(supabase.from('contacts').delete().eq('id', id)),
+  deleteContact: (id: string) => qDelete(supabase.from('contacts').delete().eq('id', id).select('id')),
 
   setFavorite: ({ id, favorite }: { id: string; favorite: boolean }) =>
     q<null>(supabase.from('contacts').update({ favorite }).eq('id', id)),
 
   addFamily: (f: Omit<FamilyMember, 'id'>) => q<FamilyMember>(supabase.from('family_members').insert(f).select().single()),
-  deleteFamily: (id: string) => q<null>(supabase.from('family_members').delete().eq('id', id)),
+  deleteFamily: (id: string) => qDelete(supabase.from('family_members').delete().eq('id', id).select('id')),
 
   addFact: (f: Omit<Fact, 'id'>) => q<Fact>(supabase.from('facts').insert(f).select().single()),
-  deleteFact: (id: string) => q<null>(supabase.from('facts').delete().eq('id', id)),
+  deleteFact: (id: string) => qDelete(supabase.from('facts').delete().eq('id', id).select('id')),
 
   addWork: (w: Omit<WorkHistory, 'id'>) => q<WorkHistory>(supabase.from('work_history').insert(w).select().single()),
   /** Save a whole pasted work history in one round trip. */
@@ -342,17 +364,17 @@ export const api = {
     q<WorkHistory[]>(supabase.from('work_history').insert(rows).select()),
   updateWork: ({ id, ...patch }: Omit<WorkHistory, 'contact_id'>) =>
     q<WorkHistory>(supabase.from('work_history').update(patch).eq('id', id).select().single()),
-  deleteWork: (id: string) => q<null>(supabase.from('work_history').delete().eq('id', id)),
+  deleteWork: (id: string) => qDelete(supabase.from('work_history').delete().eq('id', id).select('id')),
 
   addGroupCompany: (c: { group_id: string; company: string }) =>
     q<GroupCompany>(supabase.from('group_companies').insert(c).select().single()),
-  removeGroupCompany: (id: string) => q<null>(supabase.from('group_companies').delete().eq('id', id)),
+  removeGroupCompany: (id: string) => qDelete(supabase.from('group_companies').delete().eq('id', id).select('id')),
 
   createGroup: (g: { name: string; type: GroupType }) =>
     q<Group>(supabase.from('groups').insert(g).select().single()),
   updateGroup: ({ id, ...patch }: { id: string; name?: string; type?: GroupType }) =>
     q<Group>(supabase.from('groups').update(patch).eq('id', id).select().single()),
-  deleteGroup: (id: string) => q<null>(supabase.from('groups').delete().eq('id', id)),
+  deleteGroup: (id: string) => qDelete(supabase.from('groups').delete().eq('id', id).select('id')),
 
   /** Add a contact to a group by group name — creates the group if it doesn't exist. */
   async addToGroup({
@@ -375,7 +397,7 @@ export const api = {
   addGroupMember: (m: { group_id: string; contact_id: string; role: string | null }) =>
     q<null>(supabase.from('group_members').insert(m)),
   removeGroupMember: ({ groupId, contactId }: { groupId: string; contactId: string }) =>
-    q<null>(supabase.from('group_members').delete().eq('group_id', groupId).eq('contact_id', contactId)),
+    qDelete(supabase.from('group_members').delete().eq('group_id', groupId).eq('contact_id', contactId).select('group_id')),
 
   /**
    * Connections are mutual: one row per pair, read from either side, so adding
@@ -422,7 +444,7 @@ export const api = {
         .select()
         .single(),
     ),
-  deleteRelationship: (id: string) => q<null>(supabase.from('relationships').delete().eq('id', id)),
+  deleteRelationship: (id: string) => qDelete(supabase.from('relationships').delete().eq('id', id).select('id')),
 
   async uploadPhoto({ contact, file }: { contact: Contact; file: File }) {
     const blob = await resizeImage(file, 512)
@@ -500,7 +522,7 @@ export const api = {
   },
 
   removeTag: ({ contactId, tagId }: { contactId: string; tagId: string }) =>
-    q<null>(supabase.from('contact_tags').delete().eq('contact_id', contactId).eq('tag_id', tagId)),
+    qDelete(supabase.from('contact_tags').delete().eq('contact_id', contactId).eq('tag_id', tagId).select('contact_id')),
 
   async logInteraction({
     participantIds,
@@ -525,7 +547,7 @@ export const api = {
     return inter
   },
 
-  deleteInteraction: (id: string) => q<null>(supabase.from('interactions').delete().eq('id', id)),
+  deleteInteraction: (id: string) => qDelete(supabase.from('interactions').delete().eq('id', id).select('id')),
 
   // Backfill/correct an existing timeline entry (notes, date, title, location, kind).
   updateInteraction: ({
@@ -578,7 +600,7 @@ export const api = {
   reopenReminder: (id: string) =>
     q<null>(supabase.from('reminders').update({ status: 'open', completed_at: null, snoozed_until: null }).eq('id', id)),
 
-  deleteReminder: (id: string) => q<null>(supabase.from('reminders').delete().eq('id', id)),
+  deleteReminder: (id: string) => qDelete(supabase.from('reminders').delete().eq('id', id).select('id')),
 
   async exportAll() {
     const tables = [

@@ -12,6 +12,8 @@ export function ReminderItem({ reminder, showContact = true }: { reminder: Remin
   const due = effectiveDue(reminder)
   const overdue = isDueNow(reminder)
 
+  const error = complete.error ?? snooze.error ?? remove.error
+
   return (
     <div className="flex items-start gap-3 py-2.5 group">
       <button
@@ -37,6 +39,7 @@ export function ReminderItem({ reminder, showContact = true }: { reminder: Remin
           )}
         </p>
         {reminder.notes && <p className="text-xs text-slate-400 mt-0.5 whitespace-pre-wrap">{reminder.notes}</p>}
+        {error && <p className="text-xs text-red-400 mt-0.5">{(error as Error).message}</p>}
       </div>
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
         <button
