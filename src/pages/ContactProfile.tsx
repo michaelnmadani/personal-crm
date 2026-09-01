@@ -184,6 +184,11 @@ function PhotoAvatar({ contact }: { contact: ContactOverview }) {
         </button>
       )}
       {upload.isPending && <p className="absolute -bottom-5 left-0 right-0 text-center text-[0.625rem] text-slate-500">uploading…</p>}
+      {(upload.isError || removePhoto.isError) && (
+        <p className="absolute -bottom-5 left-0 right-0 text-center text-[0.625rem] text-red-400">
+          {((upload.error ?? removePhoto.error) as Error).message}
+        </p>
+      )}
     </div>
   )
 }
@@ -239,6 +244,7 @@ function GroupsSection({ contactId }: { contactId: string }) {
         )}
         {(memberships ?? []).length === 0 && !adding && <span className="text-sm text-slate-600">None yet.</span>}
       </div>
+      {removeFrom.isError && <p className="text-sm text-red-400 mt-1">{(removeFrom.error as Error).message}</p>}
       {adding && (
         <form onSubmit={submit} className="mt-2 space-y-2 border-t border-slate-800 pt-2">
           <input
@@ -266,6 +272,7 @@ function GroupsSection({ contactId }: { contactId: string }) {
             )}
             <input className={input} placeholder="Role (optional)" value={role} onChange={(e) => setRole(e.target.value)} />
           </div>
+          {addTo.isError && <p className="text-sm text-red-400">{(addTo.error as Error).message}</p>}
           <button type="submit" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
             {isNewGroup && name.trim() ? `Create “${name.trim()}” and add` : 'Add to group'}
           </button>
@@ -330,6 +337,9 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
           </button>
         </div>
       </div>
+      {(remove.isError || setNote.isError) && (
+        <p className="text-sm text-red-400 mb-1">{((remove.error ?? setNote.error) as Error).message}</p>
+      )}
       <ul className={NAME_COLUMNS}>
         {mine.map(({ rel: r, person }) => {
           return (
@@ -401,6 +411,7 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
             value={comment}
             onChange={(e) => setComment(e.target.value)}
           />
+          {add.isError && <p className="text-sm text-red-400">{(add.error as Error).message}</p>}
           <button type="submit" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
             Save connection
           </button>
@@ -472,6 +483,7 @@ function FamilyEditor({ contactId }: { contactId: string }) {
           <li className="text-sm text-slate-600 lg:col-span-2">None recorded.</li>
         )}
       </ul>
+      {remove.isError && <p className="text-sm text-red-400 mt-1">{(remove.error as Error).message}</p>}
       {adding && (
         <form onSubmit={submit} className="mt-2 space-y-2 border-t border-slate-800 pt-2">
           <div className="flex gap-2">
@@ -495,6 +507,7 @@ function FamilyEditor({ contactId }: { contactId: string }) {
             />
           </div>
           <input className={input} placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          {add.isError && <p className="text-sm text-red-400">{(add.error as Error).message}</p>}
           <button type="submit" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
             Save family member
           </button>
@@ -513,12 +526,14 @@ function RoleForm({
   initial,
   submitLabel,
   pending,
+  error,
   onSubmit,
   onCancel,
 }: {
   initial?: WorkHistory
   submitLabel: string
   pending: boolean
+  error?: string | null
   onSubmit: (v: Omit<WorkHistory, 'id' | 'contact_id'>) => Promise<void>
   onCancel?: () => void
 }) {
@@ -570,6 +585,7 @@ function RoleForm({
         </label>
       </div>
       <input className={input} placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+      {error && <p className="text-sm text-red-400">{error}</p>}
       <div className="flex gap-3">
         <button type="submit" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium" disabled={pending}>
           {submitLabel}
@@ -821,6 +837,7 @@ function WorkHistoryEditor({ contactId }: { contactId: string }) {
                 initial={w}
                 submitLabel="Save changes"
                 pending={update.isPending}
+                error={update.isError ? (update.error as Error).message : null}
                 onCancel={() => setEditing(null)}
                 onSubmit={async (v) => {
                   await update.mutateAsync({ id: w.id, ...v })
@@ -859,10 +876,12 @@ function WorkHistoryEditor({ contactId }: { contactId: string }) {
         )}
         {(work ?? []).length === 0 && !adding && <li className="text-sm text-slate-600">None recorded.</li>}
       </ul>
+      {remove.isError && <p className="text-sm text-red-400 mt-1">{(remove.error as Error).message}</p>}
       {adding && (
         <RoleForm
           submitLabel="Save role"
           pending={add.isPending}
+          error={add.isError ? (add.error as Error).message : null}
           onCancel={() => setAdding(false)}
           onSubmit={async (v) => {
             await add.mutateAsync({ contact_id: contactId, ...v })
@@ -966,6 +985,7 @@ function FactsEditor({ contactId }: { contactId: string }) {
           </li>
         ))}
       </ul>
+      {remove.isError && <p className="text-sm text-red-400 mt-1">{(remove.error as Error).message}</p>}
       <form onSubmit={submit} className="flex gap-2 mt-2">
         <input className={`${input} w-28`} placeholder="Hobby…" value={label} onChange={(e) => setLabel(e.target.value)} list="fact-labels" />
         <datalist id="fact-labels">
@@ -978,6 +998,7 @@ function FactsEditor({ contactId }: { contactId: string }) {
           <Icon name="plus" className="w-4 h-4" />
         </button>
       </form>
+      {add.isError && <p className="text-sm text-red-400 mt-1">{(add.error as Error).message}</p>}
     </div>
   )
 }
@@ -996,30 +1017,35 @@ function TagRow({ contactId }: { contactId: string }) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {(tags ?? []).map(
-        (ct) =>
-          ct.tags && (
-            <span key={ct.tag_id} className={`${chip} group`} style={{ background: `${ct.tags.color}26`, color: ct.tags.color }}>
-              {ct.tags.name}
-              <button
-                onClick={() => removeTag.mutate({ contactId, tagId: ct.tag_id })}
-                className="opacity-50 hover:opacity-100"
-                aria-label="Remove tag"
-              >
-                <Icon name="x" className="w-2.5 h-2.5" />
-              </button>
-            </span>
-          ),
+    <div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {(tags ?? []).map(
+          (ct) =>
+            ct.tags && (
+              <span key={ct.tag_id} className={`${chip} group`} style={{ background: `${ct.tags.color}26`, color: ct.tags.color }}>
+                {ct.tags.name}
+                <button
+                  onClick={() => removeTag.mutate({ contactId, tagId: ct.tag_id })}
+                  className="opacity-50 hover:opacity-100"
+                  aria-label="Remove tag"
+                >
+                  <Icon name="x" className="w-2.5 h-2.5" />
+                </button>
+              </span>
+            ),
+        )}
+        <form onSubmit={submit}>
+          <input
+            className="bg-transparent border border-dashed border-slate-700 rounded-full px-2.5 py-0.5 text-xs text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 w-24"
+            placeholder="+ tag"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+        </form>
+      </div>
+      {(addTag.isError || removeTag.isError) && (
+        <p className="text-sm text-red-400 mt-1">{((addTag.error ?? removeTag.error) as Error).message}</p>
       )}
-      <form onSubmit={submit}>
-        <input
-          className="bg-transparent border border-dashed border-slate-700 rounded-full px-2.5 py-0.5 text-xs text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 w-24"
-          placeholder="+ tag"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        />
-      </form>
     </div>
   )
 }
@@ -1033,30 +1059,33 @@ function FollowUp({ reminder }: { reminder: Reminder }) {
   const done = reminder.status === 'done'
   const days = daysUntil(new Date(reminder.due_at))
   return (
-    <div
-      className={`mt-1.5 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
-        done ? 'border-slate-700 text-slate-500' : 'border-indigo-500/40 bg-indigo-500/10'
-      }`}
-    >
-      <Icon name={done ? 'check' : 'bell'} className={`w-3.5 h-3.5 shrink-0 ${done ? '' : 'text-indigo-400'}`} />
-      {done ? (
-        <span>Followed up {reminder.completed_at ? ago(reminder.completed_at) : ''}</span>
-      ) : (
-        <>
-          <span className="text-slate-100">
-            Follow up {fmtDate(reminder.due_at)}
-            {days === 0 ? ' · today' : days > 0 ? ` · in ${days}d` : ` · ${-days}d overdue`}
-          </span>
-          <button
-            className="text-slate-500 hover:text-emerald-400"
-            onClick={() => complete.mutate(reminder)}
-            aria-label="Mark follow-up done"
-            title="Done"
-          >
-            <Icon name="check" className="w-3.5 h-3.5" />
-          </button>
-        </>
-      )}
+    <div>
+      <div
+        className={`mt-1.5 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
+          done ? 'border-slate-700 text-slate-500' : 'border-indigo-500/40 bg-indigo-500/10'
+        }`}
+      >
+        <Icon name={done ? 'check' : 'bell'} className={`w-3.5 h-3.5 shrink-0 ${done ? '' : 'text-indigo-400'}`} />
+        {done ? (
+          <span>Followed up {reminder.completed_at ? ago(reminder.completed_at) : ''}</span>
+        ) : (
+          <>
+            <span className="text-slate-100">
+              Follow up {fmtDate(reminder.due_at)}
+              {days === 0 ? ' · today' : days > 0 ? ` · in ${days}d` : ` · ${-days}d overdue`}
+            </span>
+            <button
+              className="text-slate-500 hover:text-emerald-400"
+              onClick={() => complete.mutate(reminder)}
+              aria-label="Mark follow-up done"
+              title="Done"
+            >
+              <Icon name="check" className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
+      </div>
+      {complete.isError && <p className="text-sm text-red-400 mt-1">{(complete.error as Error).message}</p>}
     </div>
   )
 }
@@ -1085,7 +1114,11 @@ export function ContactProfile() {
 
   const onDelete = async () => {
     if (!window.confirm(`Delete ${fullName(contact)} and all their notes, reminders, and details? This cannot be undone.`)) return
-    await del.mutateAsync(contact.id)
+    try {
+      await del.mutateAsync(contact.id)
+    } catch {
+      return
+    }
     navigate('/contacts')
   }
 
@@ -1134,6 +1167,10 @@ export function ContactProfile() {
             </button>
           </div>
         </div>
+
+        {(del.isError || setFavorite.isError) && (
+          <p className="mt-2 text-sm text-red-400">{((del.error ?? setFavorite.error) as Error).message}</p>
+        )}
 
         {(contact.emails.length > 0 || contact.phones.length > 0 || contact.website || contact.linkedin_url) && (
           <div className="flex flex-wrap gap-x-5 gap-y-1 mt-4 text-sm">
@@ -1225,6 +1262,9 @@ export function ContactProfile() {
         <div className={`${card} p-4`}>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Timeline</h3>
           <InteractionComposer contactId={contact.id} contactName={contact.first_name} />
+          {deleteInteraction.isError && (
+            <p className="mt-2 text-sm text-red-400">{(deleteInteraction.error as Error).message}</p>
+          )}
           <ul className="mt-4 space-y-4">
             {(interactions ?? []).map((i) => {
               const others = (i.participants ?? []).filter((p) => p.contact_id !== contact.id && p.contacts)

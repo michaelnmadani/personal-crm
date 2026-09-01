@@ -66,14 +66,22 @@ export function GroupDetail() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!adding) return
-    await addMember.mutateAsync({ group_id: group.id, contact_id: adding, role: role.trim() || null })
+    try {
+      await addMember.mutateAsync({ group_id: group.id, contact_id: adding, role: role.trim() || null })
+    } catch {
+      return
+    }
     setAdding('')
     setRole('')
   }
 
   const onDelete = async () => {
     if (!window.confirm(`Delete the group “${group.name}”? Contacts stay; only the group and memberships are removed.`)) return
-    await deleteGroup.mutateAsync(group.id)
+    try {
+      await deleteGroup.mutateAsync(group.id)
+    } catch {
+      return
+    }
     navigate('/groups')
   }
 
@@ -144,8 +152,8 @@ export function GroupDetail() {
             </div>
           </div>
         )}
-        {updateGroup.isError && (
-          <p className="mt-2 text-sm text-red-400">{(updateGroup.error as Error).message}</p>
+        {(updateGroup.isError || deleteGroup.isError) && (
+          <p className="mt-2 text-sm text-red-400">{((updateGroup.error ?? deleteGroup.error) as Error).message}</p>
         )}
       </header>
 
@@ -180,8 +188,12 @@ export function GroupDetail() {
           {(members ?? []).length === 0 && <li className="text-sm text-slate-600 py-2">No members yet.</li>}
         </ul>
 
+        {removeMember.isError && (
+          <p className="mt-2 text-sm text-red-400">{(removeMember.error as Error).message}</p>
+        )}
+
         {options.length > 0 && (
-          <form onSubmit={submit} className="flex gap-2 mt-3 border-t border-slate-800 pt-3">
+          <form onSubmit={submit} className="flex flex-wrap gap-2 mt-3 border-t border-slate-800 pt-3">
             <select className={input} value={adding} onChange={(e) => setAdding(e.target.value)}>
               <option value="">— add a member —</option>
               {options.map((c) => (
@@ -194,6 +206,7 @@ export function GroupDetail() {
             <button type="submit" className={btnPrimary} disabled={!adding || addMember.isPending}>
               Add
             </button>
+            {addMember.isError && <p className="w-full text-sm text-red-400">{(addMember.error as Error).message}</p>}
           </form>
         )}
       </section>

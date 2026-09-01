@@ -107,7 +107,12 @@ export function Contacts() {
   /** Create a contact named by whatever is in the search box, then open it. */
   const addTyped = async () => {
     if (!search.trim()) return
-    const c = await quickAdd.mutateAsync(search)
+    let c
+    try {
+      c = await quickAdd.mutateAsync(search)
+    } catch {
+      return
+    }
     setSearch('')
     navigate(`/contacts/${c.id}`)
   }
@@ -186,6 +191,10 @@ export function Contacts() {
           </div>
         )}
       </div>
+
+      {(quickAdd.isError || setFavorite.isError) && (
+        <p className="text-sm text-red-400">{((quickAdd.error ?? setFavorite.error) as Error).message}</p>
+      )}
 
       <div className="flex flex-wrap gap-1.5">
         {(['all', 'favorites', 'business', 'personal', 'overdue'] as Filter[]).map((f) => (

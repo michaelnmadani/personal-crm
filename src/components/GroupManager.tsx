@@ -70,7 +70,11 @@ function GroupCompanies({ groupId }: { groupId: string }) {
   }, [find, known, taken])
 
   const add = async (company: string) => {
-    await addCompany.mutateAsync({ group_id: groupId, company })
+    try {
+      await addCompany.mutateAsync({ group_id: groupId, company })
+    } catch {
+      return
+    }
     setFind('')
   }
 
@@ -124,7 +128,9 @@ function GroupCompanies({ groupId }: { groupId: string }) {
           </p>
         )}
       </div>
-      {addCompany.isError && <p className="text-sm text-red-400">{(addCompany.error as Error).message}</p>}
+      {(addCompany.isError || removeCompany.isError) && (
+        <p className="text-sm text-red-400">{((addCompany.error ?? removeCompany.error) as Error).message}</p>
+      )}
     </div>
   )
 }
@@ -155,7 +161,11 @@ function GroupMembers({ groupId }: { groupId: string }) {
   }, [find, contacts, memberIds])
 
   const add = async (contactId: string) => {
-    await addMember.mutateAsync({ group_id: groupId, contact_id: contactId, role: null })
+    try {
+      await addMember.mutateAsync({ group_id: groupId, contact_id: contactId, role: null })
+    } catch {
+      return
+    }
     setFind('')
   }
 
@@ -214,6 +224,9 @@ function GroupMembers({ groupId }: { groupId: string }) {
           <p className="mt-1 text-sm text-slate-500">No one matches “{find.trim()}”.</p>
         )}
       </div>
+      {(addMember.isError || removeMember.isError) && (
+        <p className="text-sm text-red-400">{((addMember.error ?? removeMember.error) as Error).message}</p>
+      )}
 
       <GroupCompanies groupId={groupId} />
     </div>
@@ -241,7 +254,12 @@ export function GroupManager() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
-    const g = await create.mutateAsync({ name: name.trim(), type })
+    let g
+    try {
+      g = await create.mutateAsync({ name: name.trim(), type })
+    } catch {
+      return
+    }
     setName('')
     setOpen(g.id) // jump straight to adding people to what you just made
   }
@@ -255,14 +273,22 @@ export function GroupManager() {
   const saveEdit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editing || !draftName.trim()) return
-    await update.mutateAsync({ id: editing, name: draftName.trim(), type: draftType })
+    try {
+      await update.mutateAsync({ id: editing, name: draftName.trim(), type: draftType })
+    } catch {
+      return
+    }
     setEditing(null)
   }
 
   const onDelete = async (id: string, label: string) => {
     if (!window.confirm(`Delete the group “${label}”? Contacts stay; only the group and its memberships are removed.`))
       return
-    await remove.mutateAsync(id)
+    try {
+      await remove.mutateAsync(id)
+    } catch {
+      return
+    }
     if (open === id) setOpen(null)
     if (editing === id) setEditing(null)
   }
@@ -296,6 +322,7 @@ export function GroupManager() {
       </form>
       {create.isError && <p className="text-sm text-red-400">{(create.error as Error).message}</p>}
       {update.isError && <p className="text-sm text-red-400">{(update.error as Error).message}</p>}
+      {remove.isError && <p className="text-sm text-red-400">{(remove.error as Error).message}</p>}
 
       {(groups ?? []).length === 0 ? (
         <p className="text-sm text-slate-500">No groups yet. Create one above.</p>

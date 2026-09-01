@@ -64,16 +64,21 @@ export function InteractionComposer({ contactId, contactName }: { contactId: str
     if (!notes.trim() && !title.trim()) return
     const loggedKind = kind
     const chosen = followUp
-    const logged = await log.mutateAsync({
-      kind,
-      happened_at: new Date(when).toISOString(),
-      title: title.trim() || null,
-      location: location.trim() || null,
-      notes: notes.trim() || null,
-      remember: remember.trim() || null,
-      participantIds: [contactId, ...others],
-    })
-    if (chosen) await remind(dueAt(chosen), logged.id)
+    let logged
+    try {
+      logged = await log.mutateAsync({
+        kind,
+        happened_at: new Date(when).toISOString(),
+        title: title.trim() || null,
+        location: location.trim() || null,
+        notes: notes.trim() || null,
+        remember: remember.trim() || null,
+        participantIds: [contactId, ...others],
+      })
+      if (chosen) await remind(dueAt(chosen), logged.id)
+    } catch {
+      return
+    }
     setTitle('')
     setLocation('')
     setNotes('')
@@ -90,7 +95,11 @@ export function InteractionComposer({ contactId, contactName }: { contactId: str
   const scheduleFollowUp = async (days: number) => {
     const due = addDays(new Date(), days)
     due.setHours(9, 0, 0, 0)
-    await remind(due, lastLogged)
+    try {
+      await remind(due, lastLogged)
+    } catch {
+      return
+    }
     setOfferFollowUp(false)
   }
 
@@ -115,6 +124,7 @@ export function InteractionComposer({ contactId, contactName }: { contactId: str
               No thanks
             </button>
           </div>
+          {addReminder.isError && <p className="mt-2 text-sm text-red-400">{(addReminder.error as Error).message}</p>}
         </div>
       )}
       <form onSubmit={submit} className="space-y-2">
@@ -210,7 +220,9 @@ export function InteractionComposer({ contactId, contactName }: { contactId: str
             {log.isPending ? 'Saving…' : 'Log it'}
           </button>
         </div>
-        {log.isError && <p className="text-sm text-red-400">{(log.error as Error).message}</p>}
+        {(log.isError || addReminder.isError) && (
+          <p className="text-sm text-red-400">{((log.error ?? addReminder.error) as Error).message}</p>
+        )}
       </form>
     </div>
   )

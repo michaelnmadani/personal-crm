@@ -427,10 +427,7 @@ export const api = {
   async uploadPhoto({ contact, file }: { contact: Contact; file: File }) {
     const blob = await resizeImage(file, 512)
     const path = `${contact.user_id}/${contact.id}.jpg`
-    const { error } = await supabase.storage
-      .from('contact-photos')
-      .upload(path, blob, { upsert: true, contentType: 'image/jpeg' })
-    if (error) throw new Error(error.message)
+    await q(supabase.storage.from('contact-photos').upload(path, blob, { upsert: true, contentType: 'image/jpeg' }))
     return q(supabase.from('contacts').update({ photo_url: path }).eq('id', contact.id))
   },
 
