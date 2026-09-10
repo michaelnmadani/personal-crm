@@ -13,6 +13,16 @@ import {
   usePhotoUrls,
   useRelationships,
 } from '../lib/hooks'
+import {
+  clusteredLayout,
+  egoPositions,
+  FALLBACK_ASPECT,
+  geoFor,
+  hubLabel,
+  rowsLayout,
+  type Hull,
+  type Pos,
+} from '../lib/networkLayout'
 import { clearNodePositions, loadNodePositions, saveNodePositions } from '../lib/networkPrefs'
 import { fullName } from '../lib/utils'
 import { Icon } from '../components/Icon'
@@ -35,580 +45,14 @@ const GROUP_COLORS: Record<GroupType, string> = {
 // user drill in by searching a person or clicking a company.
 const MAX_PEOPLE = 220
 
-// Layout geometry. SLOT is the horizontal room one node's label needs, so
-// spacing is driven by label width rather than circle width — that's what stops
-// names from colliding.
 // Baseline connection-line weight. In the focused view a direct association is
 // drawn at twice this and a company or group link at half.
 const EDGE_W = 2.5
 
-const SLOT = 132
-const RING_0 = 165
-const RING_STEP = 104
-const CLUSTER_GAP = 90
-// Clear air between one hop's band of circles and the next, so the bands read
-// as separate rather than as one dense field.
-const BAND_GAP = 70
-// A hub pill sits this far beyond the outermost band. Its own people fan out
-// from the pill rather than ringing it, so the name can stay close in.
-const HUB_GAP = 130
-// Geometry for those clusters. The slot is tighter than SLOT because these
-// labels sit at the edge of the chart with nothing beyond them to collide with.
-const ORBIT_SLOT = 92
-const ORBIT_0 = 100
-const ORBIT_STEP = 70
-// A touch under half a turn. Wider than this and the ends of the fan swing back
-// towards the bands, close enough to read as belonging to them.
-const ORBIT_ARC = Math.PI * 0.95
-
-// Successive turns of this angle never repeat or bunch up, which makes it a
-// good way to scatter things that have no direction of their own.
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
-
-type Pos = { x: number; y: number }
-
-/**
- * Wrap a hub name onto multiple lines and return the pill size that fits it.
- * Cytoscape's `width: 'label'` auto-sizing is deprecated (it resolves to zero),
- * so the pill is measured here and fed back through data() mappers.
- */
-function hubLabel(name: string, fontPx: number, maxChars = 18) {
-  const lines: string[] = []
-  let cur = ''
-  for (const word of name.trim().split(/\s+/)) {
-    if (!cur) cur = word
-    else if (`${cur} ${word}`.length <= maxChars) cur += ` ${word}`
-    else {
-      lines.push(cur)
-      cur = word
-    }
-  }
-  if (cur) lines.push(cur)
-  // Hard-break any single word that still overflows (e.g. a long domain).
-  const wrapped: string[] = []
-  for (const line of lines) {
-    if (line.length <= maxChars) wrapped.push(line)
-    else for (let i = 0; i < line.length; i += maxChars) wrapped.push(line.slice(i, i + maxChars))
-  }
-  const widest = Math.max(...wrapped.map((l) => l.length))
-  return {
-    text: wrapped.join('\n'),
-    w: Math.round(Math.max(112, widest * fontPx * 0.62 + 26)),
-    h: Math.round(Math.max(36, wrapped.length * (fontPx + 5) + 18)),
-  }
-}
-
-/** Do segments ab and cd properly cross? Shared endpoints don't count. */
-function segmentsCross(a: Pos, b: Pos, c: Pos, d: Pos) {
-  const side = (p: Pos, q: Pos, r: Pos) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x))
-  const d1 = side(a, b, c)
-  const d2 = side(a, b, d)
-  const d3 = side(c, d, a)
-  const d4 = side(c, d, b)
-  return d1 !== 0 && d2 !== 0 && d3 !== 0 && d4 !== 0 && d1 !== d2 && d3 !== d4
-}
-
-export function countCrossings(edges: [string, string][], pos: Record<string, Pos>) {
-  let n = 0
-  for (let i = 0; i < edges.length; i++)
-    for (let j = i + 1; j < edges.length; j++) {
-      const [a, b] = edges[i]
-      const [c, d] = edges[j]
-      if (a === c || a === d || b === c || b === d) continue
-      if (pos[a] && pos[b] && pos[c] && pos[d] && segmentsCross(pos[a], pos[b], pos[c], pos[d])) n++
-    }
-  return n
-}
-
-/**
- * Swap nodes between their allotted slots while that reduces the number of
- * crossing connection lines. Slots are fixed, so spacing (and therefore label
- * legibility) is untouched — only which person sits where changes. Zero
- * crossings isn't always reachable (a non-planar graph cannot be drawn without
- * them), so this is best-effort local search with a work cap.
- */
-function reduceCrossings(
-  positions: Record<string, Pos>,
-  edges: [string, string][],
-  groups: string[][],
-  maxPasses = 8,
-) {
-  if (edges.length < 2) return
-  const touched = new Set(edges.flat())
-  for (let pass = 0; pass < maxPasses; pass++) {
-    let improved = false
-    for (const group of groups) {
-      // Only bother moving people who actually have connections drawn.
-      const movable = group.filter((id) => touched.has(id))
-      if (movable.length < 2) continue
-      for (let i = 0; i < movable.length; i++) {
-        for (let j = i + 1; j < movable.length; j++) {
-          const a = movable[i]
-          const b = movable[j]
-          const before = countCrossings(edges, positions)
-          if (before === 0) return
-          const tmp = positions[a]
-          positions[a] = positions[b]
-          positions[b] = tmp
-          if (countCrossings(edges, positions) < before) improved = true
-          else {
-            const back = positions[a]
-            positions[a] = positions[b]
-            positions[b] = back
-          }
-        }
-      }
-    }
-    if (!improved) return
-  }
-}
-
-type ElData = {
-  id: string
-  source?: string
-  target?: string
-  company?: number
-  gtype?: string
-  hub?: number
-  membership?: number
-}
-
-/**
- * Ego layout, used whenever the chart is focused on one or more people.
- *
- * Distance carries meaning here. The focused people sit at the centre, ringed
- * by everyone they're directly connected to; beyond a clear gap comes the next
- * band, the people connected to *those* people, and so on outward.
- *
- * A band is one circle when its people fit on one, and two or three tightly
- * spaced circles when there are too many — a hundred direct connections belong
- * in a few layers around the centre, not on one enormous ring. Within a band,
- * everyone is placed as near as an even circle allows to whoever they're
- * connected to on the band inside, which keeps the joining lines short.
- *
- * Anyone the chain never reaches is on the chart only because they share an
- * employer or a group. Those people don't belong in a band — being one out
- * would imply a closeness that isn't there — so the hub pills sit outside every
- * band and those contacts cluster around their own pill instead, the way the
- * unfocused chart draws every company.
- */
-function egoPositions(els: cytoscape.ElementDefinition[], focusIds: string[]): Record<string, Pos> {
-  const data = (e: cytoscape.ElementDefinition) => e.data as unknown as ElData
-
-  const nodes = els.filter((e) => !data(e).source)
-  const isHub = (e: cytoscape.ElementDefinition) => !!(data(e).company || data(e).gtype)
-  const hubIds = nodes.filter(isHub).map((e) => data(e).id)
-  const peopleIds = nodes.filter((e) => !isHub(e)).map((e) => data(e).id)
-
-  const present = new Set(peopleIds)
-  const focus = focusIds.filter((id) => present.has(id))
-  if (focus.length === 0) return {}
-
-  // Adjacency over the connections you've drawn — hub spokes and group
-  // memberships are deliberately excluded, since sharing an employer is not
-  // the same as knowing someone.
-  const adj = new Map<string, string[]>()
-  for (const e of els) {
-    const d = data(e)
-    if (!d.source || !d.target || d.hub || d.membership) continue
-    adj.set(d.source, [...(adj.get(d.source) ?? []), d.target])
-    adj.set(d.target, [...(adj.get(d.target) ?? []), d.source])
-  }
-
-  // Hops from the centre: 1 is a direct association, 2+ is reached through
-  // somebody else, absent means no chain of connections gets there at all.
-  const hops = new Map<string, number>(focus.map((id) => [id, 0]))
-  let frontier = [...focus]
-  for (let depth = 1; frontier.length > 0; depth++) {
-    const next: string[] = []
-    for (const id of frontier)
-      for (const nb of adj.get(id) ?? []) {
-        if (!present.has(nb) || hops.has(nb)) continue
-        hops.set(nb, depth)
-        next.push(nb)
-      }
-    frontier = next
-  }
-
-  // Everyone each hub holds, and separately the one hub that claims each person.
-  // The two differ: somebody at a company who is also in a club belongs to both
-  // hubs, but can only orbit one of them. Aiming a pill needs the full list —
-  // using only the people it claims leaves a group whose members all work
-  // somewhere else with no direction at all, stranded away from its own people.
-  const membersOf = new Map<string, string[]>(hubIds.map((h) => [h, []]))
-  const hubOf = new Map<string, string>()
-  for (const e of els) {
-    const d = data(e)
-    if (!d.source || !d.target || (!d.hub && !d.membership)) continue
-    if (!membersOf.has(d.target)) continue
-    membersOf.get(d.target)!.push(d.source)
-    if (!hubOf.has(d.source)) hubOf.set(d.source, d.target)
-  }
-  const hubSize = new Map<string, number>([...membersOf].map(([h, m]) => [h, m.length]))
-  // Bigger hubs first, so the same employer keeps the same slice of the circle
-  // in every ring and they line up radially.
-  const hubOrder = new Map([...hubIds].sort((a, b) => (hubSize.get(b) ?? 0) - (hubSize.get(a) ?? 0)).map((h, i) => [h, i]))
-  const byHub = (ids: string[]) =>
-    [...ids].sort((a, b) => (hubOrder.get(hubOf.get(a) ?? '') ?? 99) - (hubOrder.get(hubOf.get(b) ?? '') ?? 99))
-
-  // Everyone the connection chain reaches, grouped by how many hops away.
-  const ringsByHop = new Map<number, string[]>()
-  for (const id of peopleIds) {
-    const h = hops.get(id)
-    if (h === undefined || h === 0) continue
-    ringsByHop.set(h, [...(ringsByHop.get(h) ?? []), id])
-  }
-  // …and everyone it doesn't, waiting to be parked around their own hub.
-  const orbiters = new Map<string, string[]>()
-  const homeless: string[] = []
-  for (const id of peopleIds) {
-    if (hops.has(id)) continue
-    const h = hubOf.get(id)
-    if (h) orbiters.set(h, [...(orbiters.get(h) ?? []), id])
-    else homeless.push(id)
-  }
-
-  const positions: Record<string, Pos> = {}
-  const angles = new Map<string, number>()
-  /** Radius a ring of n nodes needs before their labels start to touch. */
-  const fits = (n: number) => (n * SLOT) / (2 * Math.PI)
-  /** How many nodes a ring of this radius can hold without labels colliding. */
-  const capacity = (r: number) => Math.max(4, Math.floor((2 * Math.PI * r) / SLOT))
-
-  /**
-   * Lay one hop level out as a band: a single circle when it fits, otherwise
-   * two or three concentric circles close together, with consecutive nodes
-   * alternating between them so each circle gets the room it needs.
-   *
-   * `ids` arrive in the angular order they should appear in. `want` optionally
-   * gives each one the angle it would rather sit at — the whole band is then
-   * turned so the slots land as near those angles as possible, which is what
-   * keeps a person beside the contact they're connected to and the joining
-   * line short.
-   */
-  const placeBand = (ids: string[], from: number, want?: Map<string, number>) => {
-    const n = ids.length
-    if (n === 0) return from
-    let base = Math.max(from, RING_0 / 2)
-    let layers = Math.max(1, Math.ceil(n / capacity(base)))
-    // Three circles deep is plenty; past that, push the whole band outward
-    // rather than stacking more layers into it.
-    layers = Math.min(layers, 3)
-    while (capacity(base) * layers < n) base += RING_STEP / 2
-
-    const step = (2 * Math.PI) / n
-    let turn = -Math.PI / 2
-    if (want) {
-      // Circular mean of "wanted angle minus slot angle" is the single rotation
-      // that puts the band closest to everyone's preference at once.
-      let sx = 0
-      let sy = 0
-      ids.forEach((id, i) => {
-        const a = want.get(id)
-        if (a === undefined) return
-        sx += Math.cos(a - i * step)
-        sy += Math.sin(a - i * step)
-      })
-      if (sx !== 0 || sy !== 0) turn = Math.atan2(sy, sx)
-    }
-
-    ids.forEach((id, i) => {
-      const a = i * step + turn
-      const r = base + (i % layers) * RING_STEP
-      angles.set(id, a)
-      positions[id] = { x: r * Math.cos(a), y: r * Math.sin(a) }
-    })
-    return base + (layers - 1) * RING_STEP
-  }
-
-  /** Where a person would sit if they could stand next to whoever they know. */
-  const wantedAngle = (ids: string[]) => {
-    const m = new Map<string, number>()
-    for (const id of ids) {
-      let sx = 0
-      let sy = 0
-      for (const nb of adj.get(id) ?? []) {
-        const a = angles.get(nb)
-        if (a === undefined) continue
-        sx += Math.cos(a)
-        sy += Math.sin(a)
-      }
-      if (sx !== 0 || sy !== 0) m.set(id, Math.atan2(sy, sx))
-    }
-    return m
-  }
-
-  // Centre: one person sits at the origin, several share a small huddle.
-  let edge = 0
-  if (focus.length === 1) {
-    positions[focus[0]] = { x: 0, y: 0 }
-  } else {
-    edge = placeBand(byHub(focus), fits(focus.length))
-  }
-
-  // A band per hop outward, each separated from the last by a clear gap so the
-  // rings read as distinct bands rather than one dense field of circles.
-  let from = Math.max(edge + RING_STEP, RING_0)
-  for (const hop of [...ringsByHop.keys()].sort((a, b) => a - b)) {
-    const ids = ringsByHop.get(hop)!
-    if (hop === 1) {
-      // Nothing to sit beside yet — group them by employer instead.
-      edge = placeBand(byHub(ids), from)
-    } else {
-      // Sort by the angle each would prefer, then hand out slots in that order:
-      // everyone ends up as near their own contact as an even circle allows.
-      const want = wantedAngle(ids)
-      const norm = (a: number) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
-      const ordered = [...ids].sort((a, b) => norm(want.get(a) ?? 0) - norm(want.get(b) ?? 0))
-      edge = placeBand(ordered, from, want)
-    }
-    from = edge + RING_STEP + BAND_GAP
-  }
-
-  // Hubs last, just outside the final band, each aimed at the mean angle of its
-  // members and carrying its own group-only people in a tight fan beside it.
-  const shownHubs = hubIds.filter((h) => (hubSize.get(h) ?? 0) > 0)
-  if (shownHubs.length > 0) {
-    /**
-     * Plan a cluster of n people packed against a pill and fanned away from the
-     * chart's centre: fill the arc closest to the pill, then the next one out,
-     * and so on. Filling by what each arc holds is what keeps the first row
-     * hard against the pill however many people there are — sizing one arc to
-     * take everybody would push even the nearest of them far away.
-     */
-    const orbitPlan = (n: number) => {
-      const rings: { r: number; count: number }[] = []
-      let left = n
-      for (let j = 0; left > 0; j++) {
-        const r = ORBIT_0 + j * ORBIT_STEP
-        const take = Math.min(Math.max(3, Math.floor((ORBIT_ARC * r) / ORBIT_SLOT)), left)
-        rings.push({ r, count: take })
-        left -= take
-      }
-      return { rings, outer: rings.length > 0 ? rings[rings.length - 1].r : 0 }
-    }
-    const plans = new Map(shownHubs.map((h) => [h, orbitPlan((orbiters.get(h) ?? []).length)]))
-    const widest = Math.max(0, ...[...plans.values()].map((p) => p.outer))
-    // The pill itself sits just clear of the last band: its people fan outward
-    // from there, so the name stays close to the network it belongs to.
-    const rHub = edge + HUB_GAP
-
-    /**
-     * The direction a pill should sit in: the average angle of its members that
-     * are out on a band. A hub whose people are all group-only has no bearing of
-     * its own — those return null and get spread into the gaps afterwards.
-     */
-    const mean = (h: string) => {
-      let sx = 0
-      let sy = 0
-      for (const id of membersOf.get(h) ?? []) {
-        const a = angles.get(id)
-        if (a === undefined) continue
-        sx += Math.cos(a)
-        sy += Math.sin(a)
-      }
-      return sx === 0 && sy === 0 ? null : Math.atan2(sy, sx)
-    }
-    const norm = (a: number) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
-    const aimed = shownHubs.map((h) => ({ h, a: mean(h) }))
-    // Anything with no bearing is fanned out from straight up rather than
-    // stacked there, so unanchored pills don't all land on the same spot.
-    let free = 0
-    const placed = aimed
-      .map(({ h, a }) => ({ h, a: norm(a ?? -Math.PI / 2 + free++ * GOLDEN_ANGLE) }))
-      .sort((x, y) => x.a - y.a)
-    // Two hubs whose members sit in the same direction would land on top of each
-    // other, so keep an arc between them wide enough for their clusters too.
-    const minSep = Math.min(
-      (2 * Math.PI) / placed.length,
-      2 * Math.atan(widest / Math.max(rHub, 1)) + SLOT / Math.max(rHub, 1),
-    )
-    for (let i = 1; i < placed.length; i++) {
-      if (placed[i].a - placed[i - 1].a < minSep) placed[i].a = placed[i - 1].a + minSep
-    }
-    // If pushing them apart wrapped past the start, give up and space them evenly.
-    if (placed.length > 1 && placed[placed.length - 1].a - placed[0].a > 2 * Math.PI - minSep) {
-      placed.forEach((p, i) => (p.a = (i * 2 * Math.PI) / placed.length))
-    }
-    for (const { h, a } of placed) {
-      const cx = rHub * Math.cos(a)
-      const cy = rHub * Math.sin(a)
-      positions[h] = { x: cx, y: cy }
-      const crowd = byHub(orbiters.get(h) ?? [])
-      const plan = plans.get(h)!
-      let i = 0
-      for (const [ri, ring] of plan.rings.entries()) {
-        const step = ORBIT_ARC / Math.max(ring.count, 1)
-        // Half-step offset on alternate rows so names don't line up radially.
-        const phase = ri % 2 ? step / 2 : 0
-        for (let k = 0; k < ring.count; k++, i++) {
-          const t = a + (k - (ring.count - 1) / 2) * step + phase
-          positions[crowd[i]] = { x: cx + ring.r * Math.cos(t), y: cy + ring.r * Math.sin(t) }
-        }
-      }
-    }
-  }
-
-  // Anyone with neither a chain nor a hub (shouldn't normally happen) goes in a
-  // band of their own rather than piling up on the origin.
-  if (homeless.length > 0) placeBand(byHub(homeless), edge + RING_STEP + BAND_GAP)
-
-  return positions
-}
-
-/**
- * Deterministic hub-and-spoke layout: each company/group hub gets its members
- * on concentric rings sized so every node owns a SLOT-wide arc, then clusters
- * are packed into rows. A force layout (cose) pulls tightly-connected nodes
- * into a blob where labels overlap badly; this trades organic look for
- * guaranteed legibility, and being deterministic it doesn't reshuffle on every
- * render.
- */
-function computePositions(els: cytoscape.ElementDefinition[]): Record<string, Pos> {
-  type D = { id: string; source?: string; target?: string; company?: number; gtype?: string; hub?: number; membership?: number }
-  const data = (e: cytoscape.ElementDefinition) => e.data as unknown as D
-
-  const nodes = els.filter((e) => !data(e).source)
-  const hubIds = nodes.filter((e) => data(e).company || data(e).gtype).map((e) => data(e).id)
-  const peopleIds = nodes.filter((e) => !data(e).company && !data(e).gtype).map((e) => data(e).id)
-
-  // Attach each person to the first hub that claims them.
-  const membersOf = new Map<string, string[]>(hubIds.map((h) => [h, []]))
-  const claimed = new Set<string>()
-  for (const e of els) {
-    const d = data(e)
-    if (!d.source || !d.target) continue
-    if (!d.hub && !d.membership) continue
-    if (claimed.has(d.source) || !membersOf.has(d.target)) continue
-    membersOf.get(d.target)!.push(d.source)
-    claimed.add(d.source)
-  }
-
-  // Adjacency from the connections you've drawn (relationship edges — not the
-  // hub spokes or group memberships).
-  const adj = new Map<string, string[]>()
-  for (const e of els) {
-    const d = data(e)
-    if (!d.source || !d.target || d.hub || d.membership) continue
-    adj.set(d.source, [...(adj.get(d.source) ?? []), d.target])
-    adj.set(d.target, [...(adj.get(d.target) ?? []), d.source])
-  }
-
-  /**
-   * Order a cluster's members so connected people come out consecutively.
-   * Ring slots are filled in array order, so consecutive members land side by
-   * side — which keeps a relationship edge as a short hop between neighbours
-   * instead of a chord across the whole cluster.
-   */
-  const orderMembers = (members: string[]) => {
-    if (adj.size === 0) return members
-    const inCluster = new Set(members)
-    const degree = (id: string) => (adj.get(id) ?? []).filter((n) => inCluster.has(n)).length
-    const seen = new Set<string>()
-    const out: string[] = []
-    // Most-connected first, so dense pockets stay contiguous.
-    for (const start of [...members].sort((a, b) => degree(b) - degree(a))) {
-      if (seen.has(start)) continue
-      seen.add(start)
-      const queue = [start]
-      while (queue.length > 0) {
-        const cur = queue.shift()!
-        out.push(cur)
-        for (const nb of adj.get(cur) ?? []) {
-          if (inCluster.has(nb) && !seen.has(nb)) {
-            seen.add(nb)
-            queue.push(nb)
-          }
-        }
-      }
-    }
-    return out
-  }
-
-  // Ring plan for n members: fill outward, each ring holding as many nodes as
-  // fit at SLOT spacing around its circumference.
-  const ringsFor = (n: number) => {
-    const rings: { r: number; count: number }[] = []
-    let left = n
-    let r = RING_0
-    while (left > 0) {
-      const cap = Math.max(6, Math.floor((2 * Math.PI * r) / SLOT))
-      const take = Math.min(cap, left)
-      rings.push({ r, count: take })
-      left -= take
-      r += RING_STEP
-    }
-    return rings
-  }
-
-  const clusters = hubIds
-    .map((id) => {
-      const members = orderMembers(membersOf.get(id) ?? [])
-      const rings = ringsFor(members.length)
-      const radius = members.length === 0 ? RING_0 / 2 : rings[rings.length - 1].r + RING_STEP / 2
-      return { id, members, rings, radius }
-    })
-    .sort((a, b) => b.radius - a.radius)
-
-  // Pack clusters into rows, keeping the whole thing roughly square.
-  const positions: Record<string, Pos> = {}
-  // Aim for a roughly square overall footprint: sqrt of the summed cluster
-  // areas, nudged wider so a big cluster doesn't force one-per-row.
-  const areaSum = clusters.reduce((s, c) => s + (2 * c.radius + CLUSTER_GAP) ** 2, 0)
-  const targetW = Math.max(2 * (clusters[0]?.radius ?? 200) + CLUSTER_GAP, Math.sqrt(areaSum) * 1.3)
-  let x = 0
-  let y = 0
-  let rowH = 0
-  for (const c of clusters) {
-    const d = 2 * c.radius + CLUSTER_GAP
-    if (x > 0 && x + d > targetW) {
-      x = 0
-      y += rowH
-      rowH = 0
-    }
-    const cx = x + c.radius + CLUSTER_GAP / 2
-    const cy = y + c.radius + CLUSTER_GAP / 2
-    positions[c.id] = { x: cx, y: cy }
-    let i = 0
-    for (const [ri, ring] of c.rings.entries()) {
-      const step = (2 * Math.PI) / ring.count
-      // Half-step offset on alternate rings so labels don't line up radially.
-      const phase = ri % 2 ? step / 2 : 0
-      for (let k = 0; k < ring.count; k++, i++) {
-        const a = k * step + phase - Math.PI / 2
-        positions[c.members[i]] = { x: cx + ring.r * Math.cos(a), y: cy + ring.r * Math.sin(a) }
-      }
-    }
-    x += d
-    rowH = Math.max(rowH, d)
-  }
-
-  // Anyone with no hub (no shared employer) goes in a tidy grid underneath.
-  const slotGroups: string[][] = clusters.map((c) => c.members)
-  const loose = orderMembers(peopleIds.filter((id) => !claimed.has(id)))
-  slotGroups.push(loose)
-  if (loose.length > 0) {
-    const perRow = Math.max(1, Math.floor(targetW / SLOT))
-    const top = y + rowH + CLUSTER_GAP
-    loose.forEach((id, i) => {
-      positions[id] = { x: (i % perRow) * SLOT, y: top + Math.floor(i / perRow) * (RING_STEP * 0.8) }
-    })
-  }
-
-  // Finally, untangle the connection lines by swapping people between slots.
-  // Capped so a huge graph can't make this expensive.
-  const relEdges: [string, string][] = []
-  for (const e of els) {
-    const d = data(e)
-    if (!d.source || !d.target || d.hub || d.membership) continue
-    relEdges.push([d.source, d.target])
-  }
-  if (relEdges.length >= 2 && relEdges.length <= 120) reduceCrossings(positions, relEdges, slotGroups)
-
-  return positions
-}
-
 type Selected = { kind: 'contact'; id: string } | { kind: 'group'; id: string } | { kind: 'company'; key: string } | null
+
+/** How the overview places its clusters. Rows is the older, simpler packing. */
+type LayoutMode = 'rows' | 'clustered'
 
 /** Confirm step after dragging one person onto another on the chart. */
 function ConnectModal({
@@ -705,12 +149,35 @@ export function Network() {
   const [themeTick, setThemeTick] = useState(0)
   // Mirrors cy.zoom() so the slider tracks scroll/pinch zoom too, not just its own drags.
   const [zoomLevel, setZoomLevel] = useState(1)
+  // How clusters are placed on the overview: packed into rows in an order that
+  // keeps related ones adjacent, or settled by shared membership so they sit
+  // against each other. Remembered, since it's a preference not a mode.
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(
+    () => (localStorage.getItem('networkLayout') === 'rows' ? 'rows' : 'clustered'),
+  )
+  // 0 = the roomy spacing this chart shipped with, 1 = as tight as labels allow.
+  const [density, setDensity] = useState(() => {
+    const v = Number(localStorage.getItem('networkDensity'))
+    return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 1
+  })
+  // The slider moves freely; the layout follows once it settles. Every change
+  // rebuilds the whole graph, which is far too much to do per pixel of a drag.
+  const [appliedDensity, setAppliedDensity] = useState(density)
   // Nodes the user has dragged somewhere of their own choosing. Kept in a ref so
   // moving a node doesn't re-render (and so rebuild) the graph mid-drag; the
   // counter in state is only there to drive the "Reset layout" button.
-  const movedRef = useRef<Record<string, Pos>>(loadNodePositions())
+  const loaded = useRef(loadNodePositions())
+  const movedRef = useRef<Record<string, Pos>>(loaded.current.positions)
   const [movedCount, setMovedCount] = useState(() => Object.keys(movedRef.current).length)
+  // Shown once when a saved arrangement had to be dropped because the layout
+  // changed underneath it, so the loss is explained rather than just noticed.
+  const [layoutReset, setLayoutReset] = useState(() => loaded.current.discarded)
   const addLink = useMut(api.addRelationship)
+
+  useEffect(() => {
+    const t = setTimeout(() => setAppliedDensity(density), 180)
+    return () => clearTimeout(t)
+  }, [density])
 
   useEffect(() => {
     const obs = new MutationObserver(() => setThemeTick((n) => n + 1))
@@ -841,25 +308,43 @@ export function Network() {
         peopleIds = trimmed
       }
     } else {
-      // Default overview: biggest company clusters, capped for a fast first paint.
-      const ranked = [...companyIndex.entries()]
-        .map(([key, v]) => ({ key, members: [...v.ids].filter((id) => poolIds.has(id)) }))
+      // Default overview: your biggest clusters, capped for a fast first paint.
+      // Groups belong here as much as employers do — leaving them out made the
+      // landing view a map of workplaces and nothing else, which is not what
+      // most of these clusters actually are.
+      const rankedCompanies = [...companyIndex.entries()]
+        .map(([key, v]) => ({ kind: 'company' as const, key, members: [...v.ids].filter((id) => poolIds.has(id)) }))
         .filter((x) => x.members.length >= 2)
-        .sort((a, b) => b.members.length - a.members.length)
+      const rankedGroups = (groups ?? [])
+        .map((g) => ({
+          kind: 'group' as const,
+          key: g.id,
+          members: (memberships ?? [])
+            .filter((m) => m.group_id === g.id && poolIds.has(m.contact_id))
+            .map((m) => m.contact_id),
+        }))
+        .filter((x) => x.members.length >= 2)
+      const ranked = [...rankedCompanies, ...rankedGroups].sort((a, b) => b.members.length - a.members.length)
+
+      // Budget counts people actually added, so a group whose members are all
+      // already on the chart is nearly free — which is the common case, and the
+      // reason showing groups doesn't cost a smaller company count.
       let budget = MAX_PEOPLE
       let clusters = 0
-      for (const { key, members } of ranked) {
-        if (budget <= 0) break
-        hubKeys.add(key)
+      for (const { kind, key, members } of ranked) {
+        const fresh = members.filter((id) => !peopleIds.has(id))
+        if (fresh.length > budget) continue
+        if (kind === 'company') hubKeys.add(key)
+        else showGroupIds.add(key)
         clusters++
-        for (const id of members.slice(0, budget)) peopleIds.add(id)
-        budget -= members.length
+        for (const id of members) peopleIds.add(id)
+        budget -= fresh.length
       }
       const totalClusters = ranked.length
       note =
         totalClusters > clusters
-          ? `Your ${clusters} biggest company clusters. Search a name or click a company to explore the rest.`
-          : 'Search a name or click a company to explore.'
+          ? `Your ${clusters} biggest clusters. Search a name or click one to explore the rest.`
+          : 'Search a name or click a company or group to explore.'
     }
 
     // ---- build cytoscape elements -----------------------------------------
@@ -949,12 +434,18 @@ export function Network() {
     // Computed layout first, then anything the user has dragged into place —
     // a saved position is a deliberate override and outranks the calculation.
     // Focused on people? Use the ego layout, where distance from the centre
-    // means something. Otherwise pack clusters across the canvas as usual.
-    const base = focusPeople.length > 0 ? egoPositions(elements, focusPeople) : {}
-    const positions = {
-      ...(Object.keys(base).length > 0 ? base : computePositions(elements)),
-      ...movedRef.current,
-    }
+    // means something. Otherwise place clusters across the canvas.
+    const geo = geoFor(appliedDensity)
+    const box = containerRef.current.getBoundingClientRect()
+    const aspect = box.height > 0 ? box.width / box.height : FALLBACK_ASPECT
+    const ego = focusPeople.length > 0 ? egoPositions(elements, focusPeople, geo) : {}
+    const overview =
+      Object.keys(ego).length > 0
+        ? { positions: ego, hulls: [] as Hull[] }
+        : layoutMode === 'rows'
+          ? rowsLayout(elements, geo, aspect)
+          : clusteredLayout(elements, geo, aspect)
+    const positions = { ...overview.positions, ...movedRef.current }
 
     const cy = cytoscape({
       container: containerRef.current,
@@ -980,7 +471,9 @@ export function Network() {
             'text-valign': 'bottom',
             'text-margin-y': 5,
             // Keep labels inside their SLOT so neighbours can't collide.
-            'text-max-width': '112px',
+            // Travels with SLOT — tightening the spacing without tightening the
+            // label cap just makes neighbouring names touch.
+            'text-max-width': `${geo.LABEL}px`,
             'text-wrap': 'ellipsis',
             width: 30,
             height: 30,
@@ -1192,12 +685,65 @@ export function Network() {
       if (cy.zoom() <= LEGIBLE_ZOOM) cy.center(centres)
     }
 
+    // --- tinted cluster outlines -------------------------------------------
+    // Cytoscape draws nodes and edges and has no notion of a region, so the
+    // outlines get their own canvas underneath its layers — prepended, so
+    // cytoscape's own canvases (same stacking context, later in the DOM) paint
+    // over it. It follows the graph by reading cy's pan and zoom each frame.
+    const hullCanvas = document.createElement('canvas')
+    hullCanvas.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none'
+    containerRef.current.prepend(hullCanvas)
+    const hullOf = (h: Hull) => {
+      const node = cy.getElementById(h.hubId)
+      if (node.empty()) return null
+      return (node.data('gcolor') as string | undefined) ?? hubColor
+    }
+    const drawHulls = () => {
+      const w = containerRef.current?.clientWidth ?? 0
+      const ht = containerRef.current?.clientHeight ?? 0
+      if (hullCanvas.width !== w || hullCanvas.height !== ht) {
+        hullCanvas.width = w
+        hullCanvas.height = ht
+      }
+      const ctx = hullCanvas.getContext('2d')
+      if (!ctx) return
+      ctx.clearRect(0, 0, w, ht)
+      if (overview.hulls.length === 0) return
+      const pan = cy.pan()
+      const z = cy.zoom()
+      for (const h of overview.hulls) {
+        if (h.pts.length < 3) continue
+        const color = hullOf(h)
+        if (!color) continue
+        ctx.beginPath()
+        h.pts.forEach((p, i) => {
+          const x = p.x * z + pan.x
+          const y = p.y * z + pan.y
+          if (i === 0) ctx.moveTo(x, y)
+          else ctx.lineTo(x, y)
+        })
+        ctx.closePath()
+        ctx.globalAlpha = 0.1
+        ctx.fillStyle = color
+        ctx.fill()
+        ctx.globalAlpha = 0.34
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1.25
+        ctx.stroke()
+      }
+      ctx.globalAlpha = 1
+    }
+    drawHulls()
+    cy.on('render', drawHulls)
+
     cyRef.current = cy
     return () => {
       cyRef.current = null
+      cy.off('render', drawHulls)
+      hullCanvas.remove()
       cy.destroy()
     }
-  }, [elements, focusPeople, themeTick])
+  }, [elements, focusPeople, themeTick, layoutMode, appliedDensity])
 
   const doSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -1222,6 +768,16 @@ export function Network() {
     setSelected(null)
   }
 
+  const switchLayout = (m: LayoutMode) => {
+    setLayoutMode(m)
+    localStorage.setItem('networkLayout', m)
+  }
+
+  const changeDensity = (d: number) => {
+    setDensity(d)
+    localStorage.setItem('networkDensity', String(d))
+  }
+
   /** Throw away every dragged position and put the calculated layout back. */
   const resetLayout = () => {
     movedRef.current = {}
@@ -1229,8 +785,14 @@ export function Network() {
     setMovedCount(0)
     const cy = cyRef.current
     if (!cy) return
-    const ego = focusPeople.length > 0 ? egoPositions(elements, focusPeople) : {}
-    const home = Object.keys(ego).length > 0 ? ego : computePositions(elements)
+    const geo = geoFor(appliedDensity)
+    const box = containerRef.current?.getBoundingClientRect()
+    const aspect = box && box.height > 0 ? box.width / box.height : FALLBACK_ASPECT
+    const ego = focusPeople.length > 0 ? egoPositions(elements, focusPeople, geo) : {}
+    const home =
+      Object.keys(ego).length > 0
+        ? ego
+        : (layoutMode === 'rows' ? rowsLayout(elements, geo, aspect) : clusteredLayout(elements, geo, aspect)).positions
     cy.batch(() =>
       cy.nodes().forEach((n) => {
         const p = home[n.id()]
@@ -1268,6 +830,20 @@ export function Network() {
           </Link>
         </div>
       </header>
+
+      {layoutReset && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-slate-300">
+          <Icon name="star" className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" filled />
+          <p className="flex-1">
+            The chart lays clusters out differently now — groups that share people sit together, and the spacing is
+            tighter. Nodes you had dragged into place were positioned for the old layout, so they've been put back where
+            the chart puts them.
+          </p>
+          <button onClick={() => setLayoutReset(false)} className="text-slate-500 hover:text-slate-300" aria-label="Dismiss">
+            <Icon name="x" className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <form onSubmit={doSearch} className="relative flex-1 min-w-40">
@@ -1310,6 +886,40 @@ export function Network() {
             </option>
           ))}
         </select>
+        {/* Two ways to place the clusters. Rows is quicker to read down;
+            clustered puts groups that share people against each other. */}
+        <div className="flex rounded-lg border border-slate-700 overflow-hidden" role="group" aria-label="Cluster layout">
+          {(['clustered', 'rows'] as LayoutMode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => switchLayout(m)}
+              className={`px-2.5 py-2 text-xs capitalize ${
+                layoutMode === m ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+              aria-pressed={layoutMode === m}
+              title={
+                m === 'clustered'
+                  ? 'Groups that share people sit against each other'
+                  : 'Clusters packed into rows, related ones adjacent'
+              }
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+        <label className="flex items-center gap-2 text-xs text-slate-500 shrink-0" title="How tightly people pack around each hub">
+          Density
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={density}
+            onChange={(e) => changeDensity(Number(e.target.value))}
+            className="w-24 accent-indigo-500"
+            aria-label="Layout density"
+          />
+        </label>
       </div>
 
       {(focusLabel || note) && (
@@ -1469,9 +1079,13 @@ export function Network() {
       )}
 
       <p className="text-xs text-slate-600">
-        Search a name to see just their network, or click a <span className="text-sky-500">company</span> hub to explore
-        everyone there. Drag to pan · scroll or the slider on the left to zoom. Blue hubs group people by shared employer; dashed lines are group
-        memberships; solid lines are direct connections you've added. Focused on someone, the ring nearest them is who
+        Search a name to see just their network, or click a <span className="text-sky-500">company</span> or group hub to
+        explore everyone there. Drag to pan · scroll or the slider on the left to zoom. Blue hubs group people by shared
+        employer, coloured ones by group, and a tint shows how far each cluster reaches — where two tints overlap, those
+        are people who belong to both. <strong className="text-slate-500">Clustered</strong> pulls groups that share
+        people against each other; <strong className="text-slate-500">rows</strong> packs them into lines instead, with
+        related ones adjacent. Density sets how tightly people sit around each hub. Dashed lines are group memberships;
+        solid lines are direct connections you've added. Focused on someone, the ring nearest them is who
         they're directly connected to — several circles deep if there are a lot — then a gap, then the people connected to
         those. Anyone linked only by a shared company or group clusters around that pill, outside every band. Line weight matches: bold straight to them, normal between two other
         people, thin through a company or group — double-click anyone to add their network to the view as well. Drag a node anywhere to rearrange the chart — it stays put; drop one
