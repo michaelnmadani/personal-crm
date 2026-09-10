@@ -79,8 +79,8 @@ export function geoFor(density: number): Geo {
 const ORBIT_ARC = Math.PI * 0.95
 
 /**
- * The graph card is full width and calc(100vh - 250px) tall — roughly 2:1 on a
- * laptop. The clustered layout aims its packing at the container's real shape:
+ * Used only when the card hasn't been measured yet. The clustered layout aims
+ * its packing at the container's real shape, which is roughly 2:1 on a laptop:
  * left to itself a force packing settles into a circular blob, which on a wide
  * card means tighter clusters but *more* empty screen, which is the opposite of
  * the point.

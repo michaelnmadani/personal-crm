@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import cytoscape from 'cytoscape'
 import type { ContactOverview, GroupType } from '../lib/types'
@@ -44,6 +44,9 @@ const GROUP_COLORS: Record<GroupType, string> = {
 // A 1000-node force layout is unusable; cap what we draw at once and let the
 // user drill in by searching a person or clicking a company.
 const MAX_PEOPLE = 220
+
+// Below this the chart is too cramped to read, and the page scrolls instead.
+const GRAPH_MIN_HEIGHT = 360
 
 // Baseline connection-line weight. In the focused view a direct association is
 // drawn at twice this and a company or group link at half.
@@ -113,6 +116,55 @@ function ConnectModal({
   )
 }
 
+/**
+ * How tall the chart can be without pushing the page into a scroll.
+ *
+ * This used to be `calc(100vh - 250px)` — a guess at how much chrome sits
+ * above, and wrong whenever that changes: the overdue banner appearing, the
+ * layout notice showing, the focus strip arriving, the filter row wrapping on a
+ * narrow window, or the text-size setting moving every rem on the page. When
+ * the guess ran long the card overflowed the viewport and took the selection
+ * panel pinned to its bottom edge off-screen with it.
+ *
+ * Measuring the gap above instead is right in all of those cases. The top is
+ * taken document-relative so a scrolled page can't feed back into the height
+ * and chase itself.
+ */
+function useAvailableHeight(ref: React.RefObject<HTMLElement | null>, min: number) {
+  const [fit, setFit] = useState<{ height: number; clamped: boolean } | null>(null)
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = ref.current
+      if (!el) return
+      const top = el.getBoundingClientRect().top + window.scrollY
+      const main = el.closest('main')
+      // main reserves room for the mobile tab bar, so read it rather than
+      // assuming a desktop-sized gutter.
+      const pad = main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 24
+      const room = Math.round(window.innerHeight - top - pad)
+      // Below the floor the chart would be too cramped to read, so it keeps the
+      // floor and the page scrolls instead — and the caller pins the selection
+      // panel to the window, since it can no longer ride the card's bottom edge
+      // and stay on screen.
+      const next = { height: Math.max(min, room), clamped: room < min }
+      setFit((prev) =>
+        prev && Math.abs(prev.height - next.height) <= 1 && prev.clamped === next.clamped ? prev : next,
+      )
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    // Anything above the chart changing height moves it, and none of it is a
+    // window resize: the banner, a dismissed notice, a wrapping filter row.
+    const observer = new ResizeObserver(measure)
+    observer.observe(document.body)
+    return () => {
+      window.removeEventListener('resize', measure)
+      observer.disconnect()
+    }
+  }, [ref, min])
+  return fit
+}
+
 /** Normalize a company name so "Acme Corp." and "acme corp" match. */
 const normCompany = (s: string) =>
   s
@@ -133,6 +185,7 @@ export function Network() {
   const { data: photos } = usePhotoUrls((contacts ?? []).map((c) => c.photo_url))
   const [params] = useSearchParams()
   const containerRef = useRef<HTMLDivElement>(null)
+  const chartCardRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<cytoscape.Core | null>(null)
   const [selected, setSelected] = useState<Selected>(null)
   const [search, setSearch] = useState('')
@@ -173,11 +226,18 @@ export function Network() {
   // changed underneath it, so the loss is explained rather than just noticed.
   const [layoutReset, setLayoutReset] = useState(() => loaded.current.discarded)
   const addLink = useMut(api.addRelationship)
+  const chartFit = useAvailableHeight(chartCardRef, GRAPH_MIN_HEIGHT)
 
   useEffect(() => {
     const t = setTimeout(() => setAppliedDensity(density), 180)
     return () => clearTimeout(t)
   }, [density])
+
+  // Closing the info card is a deselect: without this the node keeps its ring
+  // and its connections stay lit with nothing on screen explaining why.
+  useEffect(() => {
+    if (selected === null) cyRef.current?.nodes().unselect()
+  }, [selected])
 
   useEffect(() => {
     const obs = new MutationObserver(() => setThemeTick((n) => n + 1))
@@ -578,6 +638,20 @@ export function Network() {
         // Zoomed far out, 200+ names become an illegible smear; drop them and
         // keep only the hub labels until the user zooms in.
         { selector: 'node.nolabel', style: { label: '' } },
+        // Selecting someone picks out how they connect. These come last so they
+        // win over the tier and hub/membership rules above, which set the same
+        // properties. Unrelated lines are muted rather than hidden — on a chart
+        // this dense, brightening a few among hundreds reads as nothing at all
+        // unless the rest steps back.
+        {
+          selector: 'edge.assoc-near',
+          style: { 'line-color': '#f59e0b', width: EDGE_W * 1.7, opacity: 1, 'z-index': 15 },
+        },
+        { selector: 'edge.assoc-far', style: { opacity: 0.13 } },
+        {
+          selector: 'node.assoc-near',
+          style: { 'border-color': '#f59e0b', 'border-width': 3, 'z-index': 12 },
+        },
       ],
       layout: {
         name: 'preset',
@@ -654,6 +728,26 @@ export function Network() {
       saveNodePositions(movedRef.current)
       setMovedCount(Object.keys(movedRef.current).length)
     })
+
+    /**
+     * Light up everything the selection touches directly: the lines out of it
+     * and the people at the other end. Driven off cytoscape's own selection
+     * rather than the tap handler, so it covers a hub, several nodes at once,
+     * and the people already focused when the chart opens.
+     */
+    const showAssociations = () => {
+      const chosen = cy.nodes(':selected')
+      cy.batch(() => {
+        cy.elements().removeClass('assoc-near assoc-far')
+        if (chosen.empty()) return
+        const near = chosen.connectedEdges()
+        near.addClass('assoc-near')
+        cy.edges().not(near).addClass('assoc-far')
+        chosen.neighborhood('node').addClass('assoc-near')
+      })
+    }
+    cy.on('select unselect', 'node', showAssociations)
+    showAssociations()
 
     // Cytoscape has no double-tap event, so pair up two taps on the same node.
     let lastTap = { id: '', at: 0 }
@@ -738,9 +832,21 @@ export function Network() {
     drawHulls()
     cy.on('render', drawHulls)
 
+    // The chart is sized to the space left over, so it can change height with
+    // no window resize behind it — the overdue banner arriving is enough.
+    // Cytoscape only re-reads its container on demand, and resize() keeps the
+    // current zoom and pan rather than yanking the view back to a fit.
+    const resizeObserver = new ResizeObserver(() => {
+      cy.resize()
+      drawHulls()
+    })
+    resizeObserver.observe(containerRef.current)
+
     cyRef.current = cy
     return () => {
       cyRef.current = null
+      resizeObserver.disconnect()
+      cy.off('select unselect', 'node', showAssociations)
       cy.off('render', drawHulls)
       hullCanvas.remove()
       cy.destroy()
@@ -979,7 +1085,7 @@ export function Network() {
         </div>
       )}
 
-      <div className={`${card} relative overflow-hidden`} style={{ height: 'calc(100vh - 250px)', minHeight: 360 }}>
+      <div ref={chartCardRef} className={`${card} relative overflow-hidden`} style={{ height: chartFit?.height, minHeight: GRAPH_MIN_HEIGHT }}>
         {!hasAnything && (
           <p className="absolute inset-0 grid place-items-center text-sm text-slate-500 z-10">
             Add some contacts first — they'll appear here as your network.
@@ -1022,7 +1128,11 @@ export function Network() {
         )}
 
         {(selectedContact || selectedGroup || selectedCompany) && (
-          <div className="absolute bottom-3 left-3 right-3 sm:right-auto sm:w-72 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl p-3 z-10">
+          <div
+            className={`${
+              chartFit?.clamped ? 'fixed bottom-20 sm:bottom-3 left-3 right-3 sm:right-auto z-30' : 'absolute bottom-3 left-3 right-3 sm:right-auto z-10'
+            } sm:w-72 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl p-3`}
+          >
             <button
               className="absolute top-2 right-2 text-slate-500 hover:text-slate-300"
               onClick={() => setSelected(null)}
