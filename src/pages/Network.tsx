@@ -466,7 +466,7 @@ export function Network() {
           selector: 'node',
           style: {
             label: 'data(label)',
-            'font-size': 9,
+            'font-size': geo.FONT,
             color: labelColor,
             'text-valign': 'bottom',
             'text-margin-y': 5,
@@ -475,8 +475,8 @@ export function Network() {
             // label cap just makes neighbouring names touch.
             'text-max-width': `${geo.LABEL}px`,
             'text-wrap': 'ellipsis',
-            width: 30,
-            height: 30,
+            width: geo.NODE,
+            height: geo.NODE,
             'background-color': nodeColor,
             'border-width': 1.5,
             'border-color': nodeColor,
@@ -562,9 +562,11 @@ export function Network() {
         {
           selector: 'node.focused',
           style: {
-            width: 60,
-            height: 60,
-            'font-size': 12,
+            // Keeps its "twice the size of everyone else" reading as the
+            // density control changes what everyone else's size is.
+            width: geo.NODE * 1.7,
+            height: geo.NODE * 1.7,
+            'font-size': geo.FONT + 3,
             'font-weight': 'bold',
             'border-width': 4,
             'border-color': '#f59e0b',
@@ -803,6 +805,10 @@ export function Network() {
     if (cy.zoom() < 0.55) cy.zoom(0.55)
   }
 
+  // Focusing on people switches the chart to the ego layout, where distance
+  // means hops from the centre — the cluster-placement choice has nothing to
+  // act on there.
+  const egoView = focusPeople.length > 0
   const selectedContact = selected?.kind === 'contact' ? byId.get(selected.id) : null
   const selectedGroup = selected?.kind === 'group' ? (groups ?? []).find((g) => g.id === selected.id) : null
   const selectedCompany = selected?.kind === 'company' ? companyIndex.get(selected.key) : null
@@ -887,28 +893,43 @@ export function Network() {
           ))}
         </select>
         {/* Two ways to place the clusters. Rows is quicker to read down;
-            clustered puts groups that share people against each other. */}
-        <div className="flex rounded-lg border border-slate-700 overflow-hidden" role="group" aria-label="Cluster layout">
+            clustered puts groups that share people against each other. Neither
+            applies while somebody is focused — there the rings mean hops from
+            that person — so the buttons go dim rather than quietly doing
+            nothing when pressed. */}
+        <div
+          className={`flex rounded-lg border border-slate-700 overflow-hidden ${egoView ? 'opacity-40' : ''}`}
+          role="group"
+          aria-label="Cluster layout"
+        >
           {(['clustered', 'rows'] as LayoutMode[]).map((m) => (
             <button
               key={m}
               onClick={() => switchLayout(m)}
-              className={`px-2.5 py-2 text-xs capitalize ${
-                layoutMode === m ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+              disabled={egoView}
+              className={`px-2.5 py-2 text-xs capitalize disabled:cursor-not-allowed ${
+                layoutMode === m ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 enabled:hover:text-slate-200'
               }`}
               aria-pressed={layoutMode === m}
               title={
-                m === 'clustered'
-                  ? 'Groups that share people sit against each other'
-                  : 'Clusters packed into rows, related ones adjacent'
+                egoView
+                  ? 'Not used while focused on someone — there the rings show how many steps away each person is'
+                  : m === 'clustered'
+                    ? 'Groups that share people sit against each other'
+                    : 'Clusters packed into rows, related ones adjacent'
               }
             >
               {m}
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-2 text-xs text-slate-500 shrink-0" title="How tightly people pack around each hub">
-          Density
+        {/* Labelled at both ends: it starts at the tight end, so without them
+            half the travel looks broken rather than already-there. */}
+        <label
+          className="flex items-center gap-1.5 text-xs text-slate-500 shrink-0"
+          title="How much of the chart is people rather than empty space"
+        >
+          <span>airy</span>
           <input
             type="range"
             min={0}
@@ -916,9 +937,10 @@ export function Network() {
             step={0.05}
             value={density}
             onChange={(e) => changeDensity(Number(e.target.value))}
-            className="w-24 accent-indigo-500"
+            className="w-20 accent-indigo-500"
             aria-label="Layout density"
           />
+          <span>dense</span>
         </label>
       </div>
 
@@ -1084,7 +1106,7 @@ export function Network() {
         employer, coloured ones by group, and a tint shows how far each cluster reaches — where two tints overlap, those
         are people who belong to both. <strong className="text-slate-500">Clustered</strong> pulls groups that share
         people against each other; <strong className="text-slate-500">rows</strong> packs them into lines instead, with
-        related ones adjacent. Density sets how tightly people sit around each hub. Dashed lines are group memberships;
+        related ones adjacent. The airy/dense slider trades empty space for bigger, more readable people. Dashed lines are group memberships;
         solid lines are direct connections you've added. Focused on someone, the ring nearest them is who
         they're directly connected to — several circles deep if there are a lot — then a gap, then the people connected to
         those. Anyone linked only by a shared company or group clusters around that pill, outside every band. Line weight matches: bold straight to them, normal between two other

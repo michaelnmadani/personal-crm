@@ -27,6 +27,16 @@ export type Geo = {
   ORBIT_0: number
   ORBIT_STEP: number
   LABEL: number
+  /**
+   * Person-circle diameter and label size, in the same graph units as the
+   * spacing above. These are why the control is felt at all: the view is
+   * fitted to the card, so shrinking every distance in step just zooms back
+   * in and nothing changes on screen. Node and label size are what survive
+   * that, so tight draws bigger circles into tighter spacing and the ink per
+   * screen actually rises.
+   */
+  NODE: number
+  FONT: number
 }
 
 const ROOMY: Geo = {
@@ -34,12 +44,14 @@ const ROOMY: Geo = {
   BAND_GAP: 70, HUB_GAP: 130,
   ORBIT_SLOT: 92, ORBIT_0: 100, ORBIT_STEP: 70,
   LABEL: 112,
+  NODE: 24, FONT: 8,
 }
 const TIGHT: Geo = {
   SLOT: 104, RING_0: 118, RING_STEP: 86, CLUSTER_GAP: 56,
   BAND_GAP: 48, HUB_GAP: 96,
   ORBIT_SLOT: 76, ORBIT_0: 78, ORBIT_STEP: 58,
   LABEL: 88,
+  NODE: 40, FONT: 11,
 }
 
 /** Geometry at a density of 0 (roomy) through 1 (tight). */
@@ -57,6 +69,8 @@ export function geoFor(density: number): Geo {
     ORBIT_0: mix(ROOMY.ORBIT_0, TIGHT.ORBIT_0),
     ORBIT_STEP: mix(ROOMY.ORBIT_STEP, TIGHT.ORBIT_STEP),
     LABEL: mix(ROOMY.LABEL, TIGHT.LABEL),
+    NODE: mix(ROOMY.NODE, TIGHT.NODE),
+    FONT: mix(ROOMY.FONT, TIGHT.FONT),
   }
 }
 
