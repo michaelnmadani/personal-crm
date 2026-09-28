@@ -15,7 +15,7 @@ const STATUS: Record<NoteStatus, { text: string; tone: string }> = {
   approved: { text: 'Attached', tone: 'bg-emerald-500/20 text-emerald-300' },
   logged: { text: 'Log only', tone: 'bg-slate-700 text-slate-300' },
   dismissed: { text: 'Dismissed', tone: 'bg-slate-800 text-slate-500' },
-  error: { text: 'Not transcribed', tone: 'bg-red-500/20 text-red-300' },
+  error: { text: 'Not analysed', tone: 'bg-red-500/20 text-red-300' },
 }
 
 const when = (n: RemarkableNote) => n.event_start ?? n.written_at ?? n.created_at
@@ -39,7 +39,7 @@ function Source({ note }: { note: RemarkableNote }) {
 
 /**
  * The handwriting itself, so a doubtful word can be checked against the page.
- * Emailed text has no page image, so there's nothing to show.
+ * Notes read from their converted text (and emailed text) have no page image.
  */
 function PageImage({ note, url, onOpen }: { note: RemarkableNote; url?: string; onOpen: () => void }) {
   if (!note.image_path) return null
@@ -171,14 +171,16 @@ function ReviewCard({
           <Source note={note} />
           {note.status === 'error' && (
             <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-              Couldn't transcribe this page yet ({note.error ?? 'unknown error'}). It's retried on the next sync — or type the
-              notes in yourself from the image and approve.
+              Couldn't analyse this page yet ({note.error ?? 'unknown error'}). It's tried again on the next sync —{' '}
+              {note.image_path
+                ? 'or type the notes in yourself from the image and approve.'
+                : 'or add a title and approve it as it is.'}
             </p>
           )}
           {note.interaction_id && note.revision > 1 && (
             <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-              You wrote more on this page after attaching it. The text below is a fresh transcription of the whole page;
-              approving again updates the same timeline entry.
+              You wrote more on this page after attaching it. The text below is the whole page as it is now; approving
+              again updates the same timeline entry.
             </p>
           )}
 
@@ -395,7 +397,7 @@ export function Notes() {
       <header>
         <h1 className="text-2xl font-bold">Notes</h1>
         <p className="text-sm text-slate-400">
-          Handwriting from your reMarkable, transcribed. Nothing is added to a contact until you approve it.
+          Notes from your reMarkable. Nothing is added to a contact until you approve it.
         </p>
         <SyncStatus />
       </header>
@@ -419,7 +421,7 @@ export function Notes() {
         !isLoading &&
         (toReview.length === 0 ? (
           <div className={`${card} p-8 text-center text-slate-500 text-sm`}>
-            Nothing to review. New handwriting shows up here after the next sync.
+            Nothing to review. New notes show up here after the next sync.
           </div>
         ) : (
           <div className="space-y-4">

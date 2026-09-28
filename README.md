@@ -11,10 +11,11 @@ Full design: [PLAN.md](PLAN.md)
 
 ## Notes from a reMarkable tablet
 
-The **Notes** tab is an inbox for handwriting. A separate sync job
-([michaelnmadani/Remarkable](https://github.com/michaelnmadani/Remarkable)) puts pre-filled
-meeting pages from Google Calendar on the tablet, has Claude transcribe every page you write
-on, and logs each one here with a recommended contact and the reason for it. Nothing is added
+The **Notes** tab is an inbox for notes from the tablet. A separate sync job
+([michaelnmadani/Remarkable](https://github.com/michaelnmadani/Remarkable)), running on your
+PC, puts pre-filled meeting pages from Google Calendar on the tablet, has a local model
+(Ollama) read the text you convert from handwriting on each page, and logs each one here
+with a recommended contact and the reason for it. Nothing is added
 to a contact until you approve it — with the recommendation or anyone you pick — and it then
 becomes an ordinary timeline entry. Tables, storage bucket and the approval function are in
 `supabase/migrations/0017_remarkable_notes.sql`.
