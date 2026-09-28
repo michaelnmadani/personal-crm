@@ -10,6 +10,7 @@ import { ContactProfile } from './pages/ContactProfile'
 import { Network } from './pages/Network'
 import { GroupDetail, Groups } from './pages/Groups'
 import { Import } from './pages/Import'
+import { Notes } from './pages/Notes'
 import { Reminders } from './pages/Reminders'
 import { Settings } from './pages/Settings'
 
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="groups" element={<Groups />} />
         <Route path="groups/:id" element={<GroupDetail />} />
         <Route path="reminders" element={<Reminders />} />
+        <Route path="notes" element={<Notes />} />
         <Route path="import" element={<Import />} />
         <Route path="settings" element={<Settings />} />
       </Route>

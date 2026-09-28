@@ -139,3 +139,57 @@ export type Relationship = {
   /** Optional free-text comment about how the two are connected. */
   notes: string | null
 }
+
+export type NoteStatus = 'pending' | 'approved' | 'logged' | 'dismissed' | 'error'
+
+/** A contact the reMarkable sync thinks a note belongs to, and why. */
+export type NoteSuggestion = {
+  contact_id: string
+  name: string
+  detail: string
+  score: number
+  reasons: string[]
+}
+
+/**
+ * A handwritten page logged by the reMarkable sync. Every page lands here; it
+ * only reaches a contact's timeline once approved.
+ */
+export type RemarkableNote = {
+  id: string
+  source: 'cloud' | 'email'
+  document_name: string | null
+  folder_path: string | null
+  page_number: number | null
+  /** Storage path of the handwriting image in the remarkable-pages bucket. */
+  image_path: string | null
+  title: string | null
+  transcription: string | null
+  summary: string | null
+  remember: string | null
+  note_type: string | null
+  written_at: string | null
+  event_title: string | null
+  event_start: string | null
+  event_location: string | null
+  event_attendees: { name: string; email: string }[]
+  suggestions: NoteSuggestion[]
+  recommended_contact_id: string | null
+  status: NoteStatus
+  approved_contact_ids: string[]
+  interaction_id: string | null
+  /** Goes up each time the page is written on again after it was logged. */
+  revision: number
+  attempts: number
+  error: string | null
+  created_at: string
+}
+
+/** One run of the reMarkable sync job. */
+export type SyncRun = {
+  id: string
+  started_at: string
+  finished_at: string | null
+  status: 'running' | 'ok' | 'partial' | 'error'
+  error: string | null
+}

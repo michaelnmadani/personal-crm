@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
-import { useOpenReminders } from '../lib/hooks'
+import { useOpenReminders, usePendingNotesCount } from '../lib/hooks'
 import { isDueNow } from '../lib/utils'
 import { Icon } from './Icon'
 
@@ -11,13 +11,15 @@ const TABS = [
   { to: '/contacts', label: 'Contacts', icon: 'users' },
   { to: '/network', label: 'Network', icon: 'share' },
   { to: '/reminders', label: 'Reminders', icon: 'bell' },
+  { to: '/notes', label: 'Notes', icon: 'note' },
   { to: '/settings', label: 'Settings', icon: 'sliders' },
 ]
 
-function Badge({ count }: { count: number }) {
+// Red means something is due; notes waiting for review are just waiting.
+function Badge({ count, tone = 'bg-red-500' }: { count: number; tone?: string }) {
   if (count === 0) return null
   return (
-    <span className="absolute -top-1 -right-2 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[0.625rem] font-bold grid place-items-center">
+    <span className={`absolute -top-1 -right-2 min-w-4 h-4 px-1 rounded-full ${tone} text-white text-[0.625rem] font-bold grid place-items-center`}>
       {count > 99 ? '99+' : count}
     </span>
   )
@@ -26,6 +28,7 @@ function Badge({ count }: { count: number }) {
 export function Layout() {
   const { data: reminders } = useOpenReminders()
   const dueCount = (reminders ?? []).filter(isDueNow).length
+  const { data: notesToReview = 0 } = usePendingNotesCount()
   const location = useLocation()
   const queryClient = useQueryClient()
 
@@ -74,6 +77,7 @@ export function Layout() {
               <span className="relative">
                 <Icon name={t.icon} className="w-5 h-5" />
                 {t.label === 'Reminders' && <Badge count={dueCount} />}
+                {t.label === 'Notes' && <Badge count={notesToReview} tone="bg-indigo-500" />}
               </span>
               {t.label}
             </NavLink>
@@ -110,6 +114,7 @@ export function Layout() {
             <span className="relative">
               <Icon name={t.icon} className="w-5 h-5" />
               {t.label === 'Reminders' && <Badge count={dueCount} />}
+              {t.label === 'Notes' && <Badge count={notesToReview} tone="bg-indigo-500" />}
             </span>
             {t.label}
           </NavLink>

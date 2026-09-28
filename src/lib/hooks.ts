@@ -16,7 +16,9 @@ import type {
   Interaction,
   InteractionKind,
   Relationship,
+  RemarkableNote,
   Reminder,
+  SyncRun,
   Tag,
   WorkHistory,
 } from './types'
@@ -304,15 +306,15 @@ export const useRelationships = () =>
     queryFn: () => q<Relationship[]>(supabase.from('relationships').select('*')),
   })
 
-/** Signed URLs for contact photos (private bucket). Keyed by storage path. */
-export const usePhotoUrls = (paths: (string | null | undefined)[]) => {
+/** Signed URLs for files in a private bucket, keyed by storage path. */
+const useSignedUrls = (bucket: string, key: string, paths: (string | null | undefined)[]) => {
   const valid = [...new Set(paths.filter((p): p is string => !!p))].sort()
   return useQuery({
-    queryKey: ['photoUrls', valid],
+    queryKey: [key, valid],
     enabled: valid.length > 0,
     staleTime: 45 * 60_000, // URLs are valid for 60 min
     queryFn: async () => {
-      const { data, error } = await supabase.storage.from('contact-photos').createSignedUrls(valid, 3600)
+      const { data, error } = await supabase.storage.from(bucket).createSignedUrls(valid, 3600)
       if (error) throw new Error(error.message)
       const map: Record<string, string> = {}
       for (const d of data) if (d.signedUrl && d.path) map[d.path] = d.signedUrl
@@ -320,6 +322,65 @@ export const usePhotoUrls = (paths: (string | null | undefined)[]) => {
     },
   })
 }
+
+/** Signed URLs for contact photos (private bucket). Keyed by storage path. */
+export const usePhotoUrls = (paths: (string | null | undefined)[]) => useSignedUrls('contact-photos', 'photoUrls', paths)
+
+// ------------------------------------------------------- reMarkable notes
+
+const NOTE_COLUMNS =
+  'id, source, document_name, folder_path, page_number, image_path, title, transcription, summary, remember, ' +
+  'note_type, written_at, event_title, event_start, event_location, event_attendees, suggestions, ' +
+  'recommended_contact_id, status, approved_contact_ids, interaction_id, revision, attempts, error, created_at'
+
+/** The reMarkable notes log, newest first — both the inbox and "all notes" read it. */
+export const useRemarkableNotes = () =>
+  useQuery({
+    queryKey: ['remarkableNotes'],
+    queryFn: () =>
+      q<RemarkableNote[]>(
+        supabase
+          .from('remarkable_notes')
+          .select(NOTE_COLUMNS)
+          .order('written_at', { ascending: false, nullsFirst: false })
+          .order('created_at', { ascending: false })
+          .limit(500),
+      ),
+  })
+
+/** How many notes are waiting for review — the Notes tab badge. */
+export const usePendingNotesCount = () =>
+  useQuery({
+    queryKey: ['remarkableNotes', 'pending'],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('remarkable_notes')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending')
+      if (error) throw new Error(error.message)
+      return count ?? 0
+    },
+  })
+
+/** The latest sync run, so the inbox can say when it last heard from the tablet. */
+export const useLastSyncRun = () =>
+  useQuery({
+    queryKey: ['remarkableSync'],
+    queryFn: async () =>
+      (
+        await q<SyncRun[]>(
+          supabase
+            .from('remarkable_sync_runs')
+            .select('id, started_at, finished_at, status, error')
+            .order('started_at', { ascending: false })
+            .limit(1),
+        )
+      )[0] ?? null,
+  })
+
+/** Signed URLs for handwriting images (private bucket). Keyed by storage path. */
+export const usePageImageUrls = (paths: (string | null | undefined)[]) =>
+  useSignedUrls('remarkable-pages', 'pageImageUrls', paths)
 
 // ---------------------------------------------------------------- mutations
 
@@ -548,6 +609,44 @@ export const api = {
   },
 
   deleteInteraction: (id: string) => qDelete(supabase.from('interactions').delete().eq('id', id).select('id')),
+
+  /**
+   * Attach a reMarkable note to contacts as a timeline entry. One database call
+   * (approve_remarkable_note) so the entry, who it's with and the note's status
+   * can't get out of step — and re-approving a page that was written on again
+   * updates the entry it made before instead of adding a second one.
+   */
+  approveNote: (a: {
+    noteId: string
+    contactIds: string[]
+    kind: InteractionKind
+    title: string | null
+    happenedAt: string
+    location: string | null
+    notes: string | null
+    remember: string | null
+  }) =>
+    q<string>(
+      supabase.rpc('approve_remarkable_note', {
+        p_note_id: a.noteId,
+        p_contact_ids: a.contactIds,
+        p_kind: a.kind,
+        p_title: a.title,
+        p_happened_at: a.happenedAt,
+        p_location: a.location,
+        p_notes: a.notes,
+        p_remember: a.remember,
+      }),
+    ),
+
+  /** Keep a note in the log without attaching it, dismiss it, or send it back to the inbox. */
+  setNoteStatus: ({ id, status }: { id: string; status: 'pending' | 'logged' | 'dismissed' }) =>
+    q<null>(
+      supabase
+        .from('remarkable_notes')
+        .update({ status, reviewed_at: status === 'pending' ? null : new Date().toISOString() })
+        .eq('id', id),
+    ),
 
   // Backfill/correct an existing timeline entry (notes, date, title, location, kind).
   updateInteraction: ({
