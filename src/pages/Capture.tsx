@@ -29,13 +29,24 @@ export function Capture() {
     }
   })
   const [interim, setInterim] = useState('')
+  const [listening, setListening] = useState(false)
   const [status, setStatus] = useState<{ tone: 'ok' | 'warn'; text: string } | null>(null)
   const [outbox, setOutbox] = useState<OutboxEntry[]>(() => pendingCaptures())
   const [savedThisVisit, setSavedThisVisit] = useState<OutboxEntry[]>([])
   const source = useRef<CaptureSource>('typed')
+  const speech = useRef<{ stop: () => void } | null>(null)
+  // Set when Save is tapped mid-sentence: the browser may still hand back
+  // the phrase it was hearing, and that belongs to the capture just saved,
+  // not at the start of the next one.
+  const ignoreLateSpeech = useRef(false)
   const box = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => onOutboxChange(setOutbox), [])
+
+  // Long dictation runs past the box's height; keep the newest words in view.
+  useEffect(() => {
+    if (listening && box.current) box.current.scrollTop = box.current.scrollHeight
+  }, [text, listening])
 
   useEffect(() => {
     try {
@@ -57,8 +68,13 @@ export function Capture() {
   }, [params, navigate])
 
   const save = async () => {
-    const words = text.trim()
+    // Whatever is mid-phrase counts — Save shouldn't cost the last sentence.
+    const words = [text.trim(), interim.trim()].filter(Boolean).join(' ')
     if (!words) return
+    if (listening) {
+      ignoreLateSpeech.current = true
+      speech.current?.stop()
+    }
     const entry = queueCapture(words, source.current)
     setSavedThisVisit((s) => [entry, ...s].slice(0, 5))
     setText('')
@@ -108,7 +124,6 @@ export function Capture() {
           placeholder={'Say it the way you’d tell someone —\n“Had coffee with Sarah this morning, she’s moving to Sydney”\n“Remind me to call James on Friday about the contract”'}
           aria-label="What happened, or what to do"
         />
-        {interim && <p className="text-sm text-slate-500 italic -mt-1">{interim}…</p>}
 
         <p className="flex items-start gap-2 text-xs text-slate-500">
           <Icon name="mic" className="w-4 h-4 shrink-0 text-indigo-400" />
@@ -117,17 +132,36 @@ export function Capture() {
           </span>
         </p>
 
+        {/* What's being heard right now, large enough to read at arm's
+            length while talking. Each finished phrase moves up into the box. */}
+        {listening && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2.5" aria-live="polite">
+            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-red-400">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              Hearing
+            </p>
+            <p className={`mt-1 text-base leading-relaxed ${interim ? 'text-slate-100' : 'text-slate-500'}`}>
+              {interim || 'Go ahead — finished phrases appear in the box above.'}
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-col items-center gap-3 pt-1">
           <SpeechButton
+            control={speech}
+            onListening={(on) => {
+              setListening(on)
+              if (on) ignoreLateSpeech.current = false
+            }}
             onFinal={(phrase) => {
-              if (!phrase) return
+              if (!phrase || ignoreLateSpeech.current) return
               source.current = 'speech'
               setText((t) => (t.trim() ? `${t.trimEnd()} ${phrase}` : phrase))
               setStatus(null)
             }}
-            onInterim={setInterim}
+            onInterim={(t) => setInterim(ignoreLateSpeech.current ? '' : t)}
           />
-          <button type="button" className={`${btnPrimary} w-full py-3 text-base`} onClick={save} disabled={!text.trim()}>
+          <button type="button" className={`${btnPrimary} w-full py-3 text-base`} onClick={save} disabled={!text.trim() && !interim.trim()}>
             <Icon name="check" className="w-5 h-5" /> Save
           </button>
         </div>
