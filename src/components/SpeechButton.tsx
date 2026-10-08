@@ -46,7 +46,31 @@ const QUIET_LIMIT_MS = 60_000
 /** What the last attempt on this device found, for the diagnostic panel. */
 export type SpeechStatus = { works: boolean | null; detail: string; at: string | null }
 
+const RESTART = 'speechRestart'
+
 const isAndroid = () => /Android/i.test(navigator.userAgent)
+
+/** Safari, including a site added to the Dock. Not Chrome/Edge/Firefox on a Mac. */
+const isSafari = () => /Safari\//.test(navigator.userAgent) && !/Chrome|Chromium|CriOS|FxiOS|Edg\//.test(navigator.userAgent)
+
+function browserName() {
+  const ua = navigator.userAgent
+  return ua.match(/Edg\/[\d.]+|Chrome\/[\d.]+|Firefox\/[\d.]+/)?.[0] ?? (isSafari() ? `Safari ${ua.match(/Version\/([\d.]+)/)?.[1] ?? ''}`.trim() : 'unknown browser')
+}
+
+/**
+ * Whether a session that ends may quietly start another. Safari asks for the
+ * microphone on every start, so there each tap is one session; anywhere else
+ * that turns out to re-ask is switched off the first time it happens.
+ */
+function mayRestart(): boolean {
+  try {
+    if (localStorage.getItem(RESTART) === 'off') return false
+  } catch {
+    /* fall through */
+  }
+  return !isSafari()
+}
 
 function recognitionCtor(): RecognitionCtor | null {
   const w = window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor }
@@ -98,6 +122,7 @@ export function resetSpeechStatus() {
     localStorage.removeItem(STORE)
     localStorage.removeItem(MODE)
     localStorage.removeItem(LOG)
+    localStorage.removeItem(RESTART)
   } catch {
     /* not essential */
   }
@@ -147,8 +172,20 @@ export function SpeechButton({
   const quiet = useRef<number | undefined>(undefined)
   const restart = useRef<number | undefined>(undefined)
   const heardNothing = useRef(0)
+  const quickEmpty = useRef(0)
+  const lastAutoStart = useRef(-Infinity)
   const log = useRef<string[]>([])
   const t0 = useRef(0)
+  const onBlur = useRef<() => void>(() => undefined)
+
+  // A permission prompt takes focus from the page. If one appears just as a
+  // session restarts by itself, this browser re-asks on every restart: stop,
+  // and never restart by itself here again.
+  useEffect(() => {
+    const handler = () => onBlur.current()
+    window.addEventListener('blur', handler)
+    return () => window.removeEventListener('blur', handler)
+  }, [])
 
   // Report changes in listening, not every render: the page passes a fresh
   // callback each time, and repeating "listening" mid-stop would undo it.
@@ -224,9 +261,11 @@ export function SpeechButton({
   }
 
   /** One recognition session; another follows when it ends, while wanted. */
-  const session = () => {
+  const session = (auto = false) => {
     const plain = plainMode()
     const r = new Ctor()
+    const began = performance.now()
+    if (auto) lastAutoStart.current = began
     r.lang = navigator.language || 'en-AU'
     // Android ends every session at a pause anyway and, in continuous mode,
     // tends to repeat the whole transcript as each new phrase arrives.
@@ -235,6 +274,7 @@ export function SpeechButton({
     let micOpened = false
     let heardSpeech = false
     let gotWords = false
+    let reportedSilence = false
 
     note('session', `continuous=${r.continuous} interim=${r.interimResults} lang=${r.lang}`)
     r.onstart = () => note('start')
@@ -272,7 +312,7 @@ export function SpeechButton({
       note('error', `${e.error}${e.message ? ` (${e.message})` : ''}`)
       // Silence and our own stop() are routine — the session just ends and,
       // if still wanted, starts again. Reporting silence means it listened.
-      if (e.error === 'no-speech') micOpened = true
+      if (e.error === 'no-speech') micOpened = reportedSilence = true
       if (e.error === 'no-speech' || e.error === 'aborted') return
       if (e.error === 'network') {
         finish('No connection — the talk button needs one. The keyboard’s mic key works offline.')
@@ -291,6 +331,12 @@ export function SpeechButton({
       }
       if (!wanted.current) {
         setListening(false)
+        return
+      }
+      // Where starting again would ask for the microphone again, a pause
+      // ends it; the next tap carries on where the text left off.
+      if (!mayRestart()) {
+        finish('Stopped at a pause — tap to carry on.')
         return
       }
       // The microphone never opened: whatever is wrong (a permission still
@@ -317,8 +363,16 @@ export function SpeechButton({
           return
         }
       }
+      // Sessions that keep ending the moment they begin, with nothing heard,
+      // aren't listening at all — however that's happening, stop the loop.
+      if (!gotWords && !reportedSilence && performance.now() - began < 1500) {
+        if (++quickEmpty.current >= 3) {
+          finish('Listening kept stopping straight away. Use the keyboard’s dictation instead.')
+          return
+        }
+      } else quickEmpty.current = 0
       restart.current = window.setTimeout(() => {
-        if (wanted.current) session()
+        if (wanted.current) session(true)
       }, 150)
     }
 
@@ -340,14 +394,18 @@ export function SpeechButton({
     setMessage(null)
     t0.current = performance.now()
     log.current = []
-    note('tap', `${isAndroid() ? 'android' : 'desktop'} · ${navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? 'unknown browser'}`)
+    note('tap', `${isAndroid() ? 'android' : 'desktop'} · ${browserName()} · restarts ${mayRestart() ? 'on' : 'off'}`)
     wanted.current = true
     pending.current = ''
     lastCommitted.current = ''
     heardNothing.current = 0
+    quickEmpty.current = 0
+    lastAutoStart.current = -Infinity
     setListening(true)
 
-    if (navigator.mediaDevices?.getUserMedia) {
+    // Safari's speech recognition asks for itself; asking first as well
+    // would only add a second prompt.
+    if (navigator.mediaDevices?.getUserMedia && !isSafari()) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         // Only the permission was wanted; hand the mic straight back so the
@@ -400,6 +458,18 @@ export function SpeechButton({
 
   if (control) control.current = { stop }
 
+  onBlur.current = () => {
+    if (!wanted.current || performance.now() - lastAutoStart.current > 2000) return
+    try {
+      localStorage.setItem(RESTART, 'off')
+    } catch {
+      /* not essential */
+    }
+    note('re-asked', 'permission prompt on restart — restarts off for this device')
+    rec.current?.stop()
+    finish('Your browser asked for the microphone again, so listening now stops at each pause — tap to carry on.')
+  }
+
   return (
     <div className="flex flex-col items-center gap-2">
       <button
@@ -415,7 +485,9 @@ export function SpeechButton({
       </button>
       <span className="text-xs text-slate-500">
         {listening
-          ? plainMode()
+          ? !mayRestart()
+            ? 'Listening — a long pause ends it. Tap to stop.'
+            : plainMode()
             ? 'Listening — each phrase appears when you pause. Tap to stop.'
             : 'Listening — pause as long as you like, tap to stop'
           : 'Tap to talk'}

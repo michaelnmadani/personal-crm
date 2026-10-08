@@ -427,7 +427,7 @@ function resolveWhen(
     const h = when.getHours()
     const implied = impliedHour(words)
     const morning = /\b(coffee|breakfast|brekkie|morning)\b/.test(words) || (implied !== null && implied[0] < 12)
-    if (!s.isCertain('meridiem') && h >= 1 && h <= 7 && !morning) when = new Date(when.getTime() + 12 * 3_600_000)
+    if (!s.isCertain('meridiem') && h >= 1 && h <= 7 && !morning) when = atTime(when, h + 12, when.getMinutes())
   } else {
     const implied = impliedHour(`${hit.result.text.toLowerCase()} ${words}`)
     if (implied) when = atTime(when, implied[0], implied[1])
@@ -438,7 +438,13 @@ function resolveWhen(
 
   if (mode === 'interaction' && when.getTime() > capturedAt.getTime() + 3_600_000) {
     // "Met her on Tuesday", said on a Monday, means last Tuesday.
-    if (s.isCertain('weekday') && !s.isCertain('day')) when = new Date(when.getTime() - 7 * 86_400_000)
+    // By the calendar, not by 7 × 24 hours, which is an hour out across a
+    // daylight-saving change.
+    if (s.isCertain('weekday') && !s.isCertain('day')) {
+      const back = new Date(when)
+      back.setDate(back.getDate() - 7)
+      when = back
+    }
     // "Lunch on the 3rd", said on the 10th, means this month's 3rd.
     else if (s.isCertain('day') && !s.isCertain('month')) {
       const back = new Date(when)
@@ -678,11 +684,13 @@ export function parseCapture(text: string, capturedAt: Date, index: NameIndex): 
   // A clause with no tense either way ("Lunch with Sarah Friday", "Board
   // meeting in May") is settled by its date. Things that happened nearly always
   // get said in the past tense, so a tenseless one with a date is read as a
-  // plan — unless even the forward reading has already gone by.
+  // plan — unless even the forward reading has already gone by. It's judged
+  // at the time it would be booked for: "Lunch with Sarah Friday", said on
+  // Friday morning, is today's lunch, still to come.
   for (const c of clauses) {
     if (c.mode !== 'either') continue
     const hit = hitIn(c, fwdHits)
-    if (hit && hit.result.start.date().getTime() > capturedAt.getTime() + 2 * 3_600_000) c.mode = 'reminder'
+    if (hit && resolveWhen(hit, c.text, 'reminder', capturedAt).when.getTime() > capturedAt.getTime()) c.mode = 'reminder'
     else if (hit) c.mode = 'interaction'
   }
 
