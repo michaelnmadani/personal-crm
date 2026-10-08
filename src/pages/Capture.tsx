@@ -5,7 +5,7 @@ import { useCaptureDrafts } from '../lib/hooks'
 import { flushCaptures, onOutboxChange, pendingCaptures, queueCapture, type OutboxEntry } from '../lib/captureOutbox'
 import type { CaptureSource } from '../lib/types'
 import { Icon } from '../components/Icon'
-import { SpeechButton, resetSpeechStatus, speechStatus } from '../components/SpeechButton'
+import { SpeechButton, resetSpeechStatus, speechLog, speechMode, speechStatus } from '../components/SpeechButton'
 import { btnPrimary, card, input } from '../components/ui'
 
 /** Unsent words survive leaving the page, a reload, or the app being closed. */
@@ -221,7 +221,10 @@ function MicHelp() {
   const [open, setOpen] = useState(false)
   const [permission, setPermission] = useState<string>('unknown')
   const [tick, setTick] = useState(0)
+  const [copied, setCopied] = useState(false)
   const s = speechStatus()
+  const log = speechLog()
+  const mode = speechMode()
 
   useEffect(() => {
     if (!open) return
@@ -255,7 +258,31 @@ function MicHelp() {
           <dd>{standalone ? 'yes' : 'no (browser tab)'}</dd>
           <dt className="text-slate-500">Online</dt>
           <dd>{navigator.onLine ? 'yes' : 'no'}</dd>
+          <dt className="text-slate-500">Talk button mode</dt>
+          <dd>{mode}</dd>
         </dl>
+        {log.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs text-slate-500">What happened last time</h3>
+              <button
+                className="text-xs text-indigo-400 hover:underline"
+                onClick={() => {
+                  const text = [`mode: ${mode}`, `standalone: ${standalone}`, `ua: ${navigator.userAgent}`, ...log].join('\n')
+                  navigator.clipboard
+                    ?.writeText(text)
+                    .then(() => setCopied(true))
+                    .catch(() => setCopied(false))
+                }}
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <pre className="max-h-48 overflow-auto rounded bg-slate-950/60 p-2 text-[11px] leading-snug text-slate-400 whitespace-pre-wrap">
+              {log.join('\n')}
+            </pre>
+          </div>
+        )}
         {s.works === false && (
           <button
             className="text-xs text-indigo-400 hover:underline"
