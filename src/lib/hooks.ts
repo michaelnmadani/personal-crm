@@ -19,6 +19,9 @@ import type {
   Reminder,
   Tag,
   WorkHistory,
+  CaptureAlias,
+  CaptureDraft,
+  CaptureSource,
 } from './types'
 
 /**
@@ -248,6 +251,37 @@ export const useFollowUps = (contactId: string) =>
   })
 
 // ------------------------------------------------------- groups & relations
+
+/** Captures waiting to be confirmed, newest first. */
+export const useCaptureDrafts = () =>
+  useQuery({
+    queryKey: ['captureDrafts', 'pending'],
+    queryFn: () =>
+      q<CaptureDraft[]>(
+        supabase.from('capture_drafts').select('*').eq('status', 'pending').order('captured_at', { ascending: false }),
+      ),
+  })
+
+/** The last few captures dealt with, so a mistaken discard can be found again. */
+export const useResolvedCaptures = () =>
+  useQuery({
+    queryKey: ['captureDrafts', 'resolved'],
+    queryFn: () =>
+      q<CaptureDraft[]>(
+        supabase
+          .from('capture_drafts')
+          .select('*')
+          .neq('status', 'pending')
+          .order('resolved_at', { ascending: false })
+          .limit(15),
+      ),
+  })
+
+export const useCaptureAliases = () =>
+  useQuery({
+    queryKey: ['captureAliases'],
+    queryFn: () => q<CaptureAlias[]>(supabase.from('capture_aliases').select('*')),
+  })
 
 export const useGroups = () =>
   useQuery({
@@ -562,6 +596,43 @@ export const api = {
     notes?: string | null
     remember?: string | null
   }) => q<null>(supabase.from('interactions').update(fields).eq('id', id)),
+
+  /**
+   * Store captures. Each carries an id made on the phone, so one that is
+   * retried after a dropped connection is ignored rather than doubled.
+   */
+  addCaptureDrafts: (rows: { raw_text: string; source: CaptureSource; client_id: string; captured_at: string }[]) =>
+    q<null>(
+      supabase.from('capture_drafts').upsert(rows, { onConflict: 'user_id,client_id', ignoreDuplicates: true }),
+    ),
+
+  resolveCaptureDraft: ({
+    id,
+    status,
+    interaction_id = null,
+    reminder_id = null,
+  }: {
+    id: string
+    status: 'pending' | 'confirmed' | 'discarded'
+    interaction_id?: string | null
+    reminder_id?: string | null
+  }) =>
+    q<null>(
+      supabase
+        .from('capture_drafts')
+        .update({ status, interaction_id, reminder_id, resolved_at: status === 'pending' ? null : new Date().toISOString() })
+        .eq('id', id),
+    ),
+
+  /** Remember that these words, as heard, meant this person. */
+  rememberCaptureAlias: ({ heard, contact_id }: { heard: string; contact_id: string }) =>
+    q<null>(
+      supabase
+        .from('capture_aliases')
+        .upsert({ heard, contact_id, last_used_at: new Date().toISOString() }, { onConflict: 'user_id,heard,contact_id' }),
+    ),
+
+  forgetCaptureAlias: (id: string) => qDelete(supabase.from('capture_aliases').delete().eq('id', id).select('id')),
 
   addReminder: (r: {
     title: string

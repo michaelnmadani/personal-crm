@@ -2,7 +2,8 @@ import { useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
-import { useOpenReminders } from '../lib/hooks'
+import { useCaptureDrafts, useOpenReminders } from '../lib/hooks'
+import { flushCaptures } from '../lib/captureOutbox'
 import { isDueNow } from '../lib/utils'
 import { Icon } from './Icon'
 
@@ -10,6 +11,7 @@ const TABS = [
   { to: '/', label: 'Catch Up', icon: 'home' },
   { to: '/contacts', label: 'Contacts', icon: 'users' },
   { to: '/network', label: 'Network', icon: 'share' },
+  { to: '/inbox', label: 'Inbox', icon: 'inbox' },
   { to: '/reminders', label: 'Reminders', icon: 'bell' },
   { to: '/settings', label: 'Settings', icon: 'sliders' },
 ]
@@ -26,6 +28,8 @@ function Badge({ count }: { count: number }) {
 export function Layout() {
   const { data: reminders } = useOpenReminders()
   const dueCount = (reminders ?? []).filter(isDueNow).length
+  const { data: captures } = useCaptureDrafts()
+  const inboxCount = (captures ?? []).length
   const location = useLocation()
   const queryClient = useQueryClient()
 
@@ -35,6 +39,26 @@ export function Layout() {
     if (dueCount > 0) nav.setAppBadge?.(dueCount)
     else nav.clearAppBadge?.()
   }, [dueCount])
+
+  // Captures queued on this phone go out whenever they can: on opening the
+  // app, on coming back to it, and the moment the connection returns — so
+  // something said in a lift reaches the inbox without anyone pressing retry.
+  useEffect(() => {
+    const send = () => {
+      if (!navigator.onLine) return
+      void flushCaptures().then((r) => {
+        if (r.status === 'sent') void queryClient.invalidateQueries({ queryKey: ['captureDrafts'] })
+      })
+    }
+    const onVisible = () => document.visibilityState === 'visible' && send()
+    send()
+    window.addEventListener('online', send)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('online', send)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [queryClient])
 
   // Realtime: any change made on another device invalidates local caches.
   useEffect(() => {
@@ -48,6 +72,9 @@ export function Layout() {
   }, [queryClient])
 
   const showBanner = dueCount > 0 && location.pathname !== '/' && location.pathname !== '/reminders'
+  // Not on the capture screen itself, and not on the network chart, where it
+  // would sit on top of the selection panel that has to stay in view.
+  const showCaptureButton = location.pathname !== '/capture' && location.pathname !== '/network'
 
   return (
     <div className="min-h-screen md:pl-56">
@@ -74,6 +101,7 @@ export function Layout() {
               <span className="relative">
                 <Icon name={t.icon} className="w-5 h-5" />
                 {t.label === 'Reminders' && <Badge count={dueCount} />}
+                {t.label === 'Inbox' && <Badge count={inboxCount} />}
               </span>
               {t.label}
             </NavLink>
@@ -90,9 +118,22 @@ export function Layout() {
 
       {/* Full width beside the sidebar — the content sizes itself, so wide
           screens get more room rather than a narrow centred column. */}
-      <main className="w-full px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-10">
+      <main className={`w-full px-4 sm:px-6 lg:px-8 py-6 ${showCaptureButton ? 'pb-36' : 'pb-24'} md:pb-10`}>
         <Outlet />
       </main>
+
+      {/* One tap from anywhere to start talking. Phone only — on a laptop the
+          keyboard is right there, and it's in the Inbox header too. */}
+      {showCaptureButton && (
+        <NavLink
+          to="/capture"
+          className="md:hidden fixed right-4 z-20 w-14 h-14 rounded-full bg-indigo-600 text-white grid place-items-center shadow-lg shadow-black/40 active:bg-indigo-500"
+          style={{ bottom: 'calc(4.75rem + env(safe-area-inset-bottom))' }}
+          aria-label="Capture by voice"
+        >
+          <Icon name="mic" className="w-6 h-6" />
+        </NavLink>
+      )}
 
       {/* Mobile bottom tabs */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 border-t border-slate-800 bg-slate-900/95 backdrop-blur flex pb-[env(safe-area-inset-bottom)]">
@@ -110,6 +151,7 @@ export function Layout() {
             <span className="relative">
               <Icon name={t.icon} className="w-5 h-5" />
               {t.label === 'Reminders' && <Badge count={dueCount} />}
+              {t.label === 'Inbox' && <Badge count={inboxCount} />}
             </span>
             {t.label}
           </NavLink>

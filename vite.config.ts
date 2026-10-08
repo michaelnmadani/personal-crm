@@ -25,6 +25,21 @@ export default defineConfig({
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
+        // Long-press the app icon for these; on Android each can also be
+        // dragged out onto the home screen as its own icon — Capture becomes
+        // one tap from unlocking the phone.
+        shortcuts: [
+          { name: 'Capture', short_name: 'Capture', description: 'Say what happened or what to do', url: '/capture', icons: [{ src: 'icon-192.png', sizes: '192x192', type: 'image/png' }] },
+          { name: 'Inbox', short_name: 'Inbox', description: 'Review captures', url: '/inbox', icons: [{ src: 'icon-192.png', sizes: '192x192', type: 'image/png' }] },
+        ],
+        // Puts the CRM in Android's share sheet: share text from the Recorder
+        // app (which transcribes on the phone), a note, or a message, and it
+        // opens as a capture to check.
+        share_target: {
+          action: '/capture',
+          method: 'GET',
+          params: { title: 'title', text: 'text', url: 'url' },
+        },
       },
     }),
   ],

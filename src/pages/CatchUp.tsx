@@ -2,7 +2,14 @@ import { useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import type { ContactOverview } from '../lib/types'
-import { useAllFamily, useCalendarInteractions, useContacts, useInteractions, useOpenReminders } from '../lib/hooks'
+import {
+  useAllFamily,
+  useCalendarInteractions,
+  useCaptureDrafts,
+  useContacts,
+  useInteractions,
+  useOpenReminders,
+} from '../lib/hooks'
 import { ago, daysUntil, effectiveDue, fullName, initials, isDueNow, kitDueInDays, nextOccurrence } from '../lib/utils'
 import { useToday } from '../lib/useToday'
 import { Avatar } from '../components/Avatar'
@@ -31,6 +38,7 @@ export function CatchUp() {
   const { data: family } = useAllFamily()
   const { data: recent } = useInteractions()
   const { data: calendarEvents } = useCalendarInteractions()
+  const { data: captures } = useCaptureDrafts()
 
   const due = (reminders ?? []).filter(isDueNow)
   const upcoming = (reminders ?? []).filter((r) => {
@@ -142,6 +150,20 @@ export function CatchUp() {
           {format(new Date(), 'EEEE, MMMM d')}
         </p>
       </header>
+
+      {/* Captures sit unsaved until checked, so the home screen says so. */}
+      {(captures ?? []).length > 0 && (
+        <Link
+          to="/inbox"
+          className="flex items-center gap-3 rounded-xl border border-indigo-500/40 bg-indigo-500/10 px-4 py-3 hover:bg-indigo-500/15"
+        >
+          <Icon name="inbox" className="w-5 h-5 text-indigo-300 shrink-0" />
+          <span className="flex-1 text-sm text-slate-200">
+            {(captures ?? []).length} capture{(captures ?? []).length === 1 ? '' : 's'} to review
+          </span>
+          <span className="text-sm text-indigo-300">Review →</span>
+        </Link>
+      )}
 
       {/* Side by side only from xl up, where the calendar's 26rem minimum and
           the list can both breathe. Narrower than that — including a small

@@ -139,3 +139,29 @@ export type Relationship = {
   /** Optional free-text comment about how the two are connected. */
   notes: string | null
 }
+
+/** Where a capture came in from. */
+export type CaptureSource = 'typed' | 'speech' | 'shared'
+
+/** Something said into the phone, waiting to be confirmed as a timeline entry or a reminder. */
+export type CaptureDraft = {
+  id: string
+  raw_text: string
+  source: CaptureSource
+  client_id: string
+  /** When it was said — relative dates ("yesterday") are read against this, not against now. */
+  captured_at: string
+  created_at: string
+  status: 'pending' | 'confirmed' | 'discarded'
+  resolved_at: string | null
+  interaction_id: string | null
+  reminder_id: string | null
+}
+
+/** A mishearing that has been corrected once, remembered so it resolves itself next time. */
+export type CaptureAlias = {
+  id: string
+  heard: string
+  contact_id: string
+  last_used_at: string
+}
