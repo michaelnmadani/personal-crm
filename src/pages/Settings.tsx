@@ -8,6 +8,7 @@ import { applyTheme, currentTheme, THEME_SWATCH, THEMES, type Theme } from '../l
 import { applyTextSize, currentTextSize, TEXT_SIZE_LABEL, TEXT_SIZES, type TextSize } from '../lib/textSize'
 import { setWeekendCombined, weekendCombined } from '../lib/calendarPrefs'
 import { Icon } from '../components/Icon'
+import { AssistantAccess } from '../components/AssistantAccess'
 import { btnGhost, btnPrimary, card } from '../components/ui'
 
 const THEME_LABELS: Record<Theme, string> = {
@@ -183,6 +184,8 @@ export function Settings() {
           </button>
         </div>
       </section>
+
+      <AssistantAccess />
 
       <section className={`${card} p-4 space-y-3`}>
         <h2 className="text-sm font-semibold text-slate-300">App version</h2>

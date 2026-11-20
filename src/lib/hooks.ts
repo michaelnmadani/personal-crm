@@ -22,6 +22,8 @@ import type {
   CaptureAlias,
   CaptureDraft,
   CaptureSource,
+  ApiToken,
+  AssistantLogEntry,
 } from './types'
 
 /**
@@ -355,6 +357,38 @@ export const usePhotoUrls = (paths: (string | null | undefined)[]) => {
   })
 }
 
+/** Assistant access keys, newest first. The key itself is never stored, so never fetched. */
+export const useApiTokens = () =>
+  useQuery({
+    queryKey: ['apiTokens'],
+    queryFn: () =>
+      q<ApiToken[]>(
+        supabase
+          .from('api_tokens')
+          .select('id, label, timezone, created_at, last_used_at, revoked_at')
+          .order('created_at', { ascending: false }),
+      ),
+  })
+
+/** What assistants have done lately — so anything they got wrong can be found and put right. */
+export const useAssistantLog = () =>
+  useQuery({
+    queryKey: ['assistantLog'],
+    queryFn: () =>
+      q<AssistantLogEntry[]>(
+        supabase
+          .from('assistant_log')
+          .select('id, tool, ok, summary, contact_ids, created_at')
+          .order('created_at', { ascending: false })
+          .limit(25),
+      ),
+  })
+
+async function sha256Hex(s: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 // ---------------------------------------------------------------- mutations
 
 /** All mutations invalidate everything — the dataset is small and it keeps every view fresh. */
@@ -672,6 +706,26 @@ export const api = {
     q<null>(supabase.from('reminders').update({ status: 'open', completed_at: null, snoozed_until: null }).eq('id', id)),
 
   deleteReminder: (id: string) => qDelete(supabase.from('reminders').delete().eq('id', id).select('id')),
+
+  /**
+   * Make an access key for an assistant. The key is returned once, to be shown
+   * once; only its fingerprint is saved, so it can't be read back later.
+   */
+  async createApiToken(label: string): Promise<{ key: string }> {
+    const bytes = crypto.getRandomValues(new Uint8Array(32))
+    const key = `pcrm_${btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`
+    await q(
+      supabase.from('api_tokens').insert({
+        label: label.trim() || 'Assistant',
+        token_hash: await sha256Hex(key),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Australia/Sydney',
+      }),
+    )
+    return { key }
+  },
+
+  revokeApiToken: (id: string) =>
+    q<null>(supabase.from('api_tokens').update({ revoked_at: new Date().toISOString() }).eq('id', id)),
 
   async exportAll() {
     const tables = [

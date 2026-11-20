@@ -165,3 +165,23 @@ export type CaptureAlias = {
   contact_id: string
   last_used_at: string
 }
+
+/** An access key an assistant (such as Meta's Muse) uses to reach the CRM. Only its fingerprint is stored. */
+export type ApiToken = {
+  id: string
+  label: string
+  timezone: string
+  created_at: string
+  last_used_at: string | null
+  revoked_at: string | null
+}
+
+/** One thing an assistant did with an access key, as shown in Settings. */
+export type AssistantLogEntry = {
+  id: string
+  tool: string
+  ok: boolean
+  summary: string
+  contact_ids: string[]
+  created_at: string
+}
