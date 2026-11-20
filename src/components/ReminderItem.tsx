@@ -4,6 +4,7 @@ import type { Reminder } from '../lib/types'
 import { api, useMut } from '../lib/hooks'
 import { effectiveDue, fmtDateTime, fullName, isDueNow } from '../lib/utils'
 import { Icon } from './Icon'
+import { ConfirmButton } from './ConfirmButton'
 
 export function ReminderItem({ reminder, showContact = true }: { reminder: Reminder; showContact?: boolean }) {
   const complete = useMut(api.completeReminder)
@@ -41,7 +42,7 @@ export function ReminderItem({ reminder, showContact = true }: { reminder: Remin
         {reminder.notes && <p className="text-xs text-slate-400 mt-0.5 whitespace-pre-wrap">{reminder.notes}</p>}
         {error && <p className="text-xs text-red-400 mt-0.5">{(error as Error).message}</p>}
       </div>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+      <div className="flex items-center gap-1 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-within:opacity-100">
         <button
           onClick={() => snooze.mutate({ id: reminder.id, until: addDays(new Date(), 1) })}
           className="px-1.5 py-0.5 text-[0.6875rem] rounded bg-slate-800 text-slate-400 hover:text-slate-200"
@@ -56,13 +57,15 @@ export function ReminderItem({ reminder, showContact = true }: { reminder: Remin
         >
           +1w
         </button>
-        <button
-          onClick={() => remove.mutate(reminder.id)}
-          className="p-1 text-slate-500 hover:text-red-400"
-          aria-label="Delete"
+        <ConfirmButton
+          className="p-1"
+          idleClassName="text-slate-500 hover:text-red-400"
+          confirmText="Delete?"
+          onConfirm={() => remove.mutate(reminder.id)}
+          label={`Delete reminder: ${reminder.title}`}
         >
           <Icon name="trash" className="w-3.5 h-3.5" />
-        </button>
+        </ConfirmButton>
       </div>
     </div>
   )

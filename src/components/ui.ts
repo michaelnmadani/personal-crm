@@ -7,3 +7,10 @@ export const btnGhost = `${btn} text-slate-300 hover:bg-slate-800`
 export const btnDanger = `${btn} text-red-400 hover:bg-red-950/50`
 export const card = 'bg-slate-900 border border-slate-800 rounded-xl'
 export const chip = 'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium'
+
+/**
+ * For row actions (edit, remove): hidden until hovered where there's a mouse,
+ * always shown on touch screens — which can't hover, so would otherwise have
+ * invisible buttons that still respond to a tap.
+ */
+export const revealOnHover = '[@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100'

@@ -6,7 +6,8 @@ import { fullName } from '../lib/utils'
 import { Avatar } from '../components/Avatar'
 import { GroupManager } from '../components/GroupManager'
 import { Icon } from '../components/Icon'
-import { btnDanger, btnGhost, btnPrimary, card, chip, input } from '../components/ui'
+import { btnDanger, btnGhost, btnPrimary, card, chip, input, revealOnHover } from '../components/ui'
+import { ConfirmButton } from '../components/ConfirmButton'
 
 const GROUP_TYPES: GroupType[] = ['company', 'church', 'sports', 'school', 'club', 'nonprofit', 'family', 'other']
 
@@ -175,13 +176,14 @@ export function GroupDetail() {
                     {fullName(m.contacts)}
                   </Link>
                   {m.role && <span className="text-xs text-slate-500">{m.role}</span>}
-                  <button
-                    className="ml-auto opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400"
-                    onClick={() => removeMember.mutate({ groupId: group.id, contactId: m.contact_id })}
-                    aria-label="Remove member"
+                  <ConfirmButton
+                    className="ml-auto"
+                    idleClassName={`${revealOnHover} text-slate-600 hover:text-red-400`}
+                    onConfirm={() => removeMember.mutate({ groupId: group.id, contactId: m.contact_id })}
+                    label={`Remove ${fullName(m.contacts)} from the group`}
                   >
                     <Icon name="x" className="w-3.5 h-3.5" />
-                  </button>
+                  </ConfirmButton>
                 </li>
               ),
           )}

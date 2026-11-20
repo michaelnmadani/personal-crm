@@ -71,34 +71,40 @@ const INTERACTION_SELECT =
 // ------------------------------------------------------------------ queries
 
 /**
- * Page through a table. PostgREST caps every response at its max-rows setting
- * (1000 on Supabase), so a plain select silently truncates once the CRM grows
- * past that — the list header and the network graph would both quietly go stale.
+ * Every row a query matches. PostgREST caps each response at its max-rows
+ * setting (1000 on Supabase), so a plain select silently stops there — tags
+ * vanish from the list, links from the network graph, contacts from the
+ * backup, with nothing on screen to say so. This asks a page at a time until a
+ * page comes back short. `page` must order by something unique, or rows can
+ * repeat or go missing between pages.
  */
-async function fetchAllContacts(): Promise<ContactOverview[]> {
-  const PAGE = 1000
-  const MAX_PAGES = 50 // safety net: never spin forever if a page repeats
-  const all: ContactOverview[] = []
-  for (let page = 0, from = 0; page < MAX_PAGES; page++, from += PAGE) {
-    const batch = await q<ContactOverview[]>(
-      supabase
-        .from('contacts_overview')
-        .select('*')
-        .eq('archived', false)
-        .order('first_name')
-        .order('id')
-        .range(from, from + PAGE - 1),
-    )
+export async function fetchAll<T>(
+  page: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<T[]> {
+  const SIZE = 1000
+  const MAX_PAGES = 100 // safety net: never spin forever
+  const all: T[] = []
+  for (let n = 0; n < MAX_PAGES; n++) {
+    const batch = await q<T[]>(page(n * SIZE, n * SIZE + SIZE - 1))
     all.push(...batch)
-    if (batch.length < PAGE) break
+    if (batch.length < SIZE) return all
   }
-  return all
+  throw new Error(`Stopped after ${MAX_PAGES * SIZE} rows — more than this app expects to load at once.`)
 }
 
 export const useContacts = () =>
   useQuery({
     queryKey: ['contacts'],
-    queryFn: fetchAllContacts,
+    queryFn: () =>
+      fetchAll<ContactOverview>((from, to) =>
+        supabase
+          .from('contacts_overview')
+          .select('*')
+          .eq('archived', false)
+          .order('first_name')
+          .order('id')
+          .range(from, to),
+      ),
   })
 
 export const useContact = (id: string) =>
@@ -120,8 +126,8 @@ export const useAllFamily = () =>
   useQuery({
     queryKey: ['family', 'all'],
     queryFn: () =>
-      q<(FamilyMember & { contacts: { id: string; first_name: string; last_name: string | null } | null })[]>(
-        supabase.from('family_members').select('*, contacts(id, first_name, last_name)'),
+      fetchAll<FamilyMember & { contacts: { id: string; first_name: string; last_name: string | null } | null }>((from, to) =>
+        supabase.from('family_members').select('*, contacts(id, first_name, last_name)').order('id').range(from, to),
       ),
   })
 
@@ -149,7 +155,7 @@ export const useWorkHistory = (contactId: string) =>
 export const useAllWorkHistory = () =>
   useQuery({
     queryKey: ['work', 'all'],
-    queryFn: () => q<WorkHistory[]>(supabase.from('work_history').select('*')),
+    queryFn: () => fetchAll<WorkHistory>((from, to) => supabase.from('work_history').select('*').order('id').range(from, to)),
   })
 
 export const useTags = () =>
@@ -171,19 +177,31 @@ export const useAllContactTags = () =>
   useQuery({
     queryKey: ['contactTags', 'all'],
     queryFn: () =>
-      q<ContactTag[]>(supabase.from('contact_tags').select('contact_id, tag_id, tags(id, name, color)')),
+      fetchAll<ContactTag>((from, to) =>
+        supabase
+          .from('contact_tags')
+          .select('contact_id, tag_id, tags(id, name, color)')
+          .order('contact_id')
+          .order('tag_id')
+          .range(from, to),
+      ),
   })
 
 /**
- * A wide window of interactions for the calendar. The `useInteractions()`
- * overview is capped at the latest 8, which would leave most months empty.
+ * Every interaction, for the calendar — any month can be paged back to. (The
+ * `useInteractions()` overview is capped at the latest 8.)
  */
 export const useCalendarInteractions = () =>
   useQuery({
     queryKey: ['interactions', 'calendar'],
     queryFn: () =>
-      q<Interaction[]>(
-        supabase.from('interactions').select(INTERACTION_SELECT).order('happened_at', { ascending: false }).limit(500),
+      fetchAll<Interaction>((from, to) =>
+        supabase
+          .from('interactions')
+          .select(INTERACTION_SELECT)
+          .order('happened_at', { ascending: false })
+          .order('id')
+          .range(from, to),
       ),
   })
 
@@ -324,20 +342,26 @@ export const useContactGroups = (contactId: string) =>
 export const useAllGroupMembers = () =>
   useQuery({
     queryKey: ['groupMembers', 'all'],
-    queryFn: () => q<GroupMember[]>(supabase.from('group_members').select('group_id, contact_id, role')),
+    queryFn: () =>
+      fetchAll<GroupMember>((from, to) =>
+        supabase.from('group_members').select('group_id, contact_id, role').order('group_id').order('contact_id').range(from, to),
+      ),
   })
 
 /** Company names mapped onto groups — every row, for the network chart. */
 export const useGroupCompanies = () =>
   useQuery({
     queryKey: ['groupCompanies'],
-    queryFn: () => q<GroupCompany[]>(supabase.from('group_companies').select('id, group_id, company').order('company')),
+    queryFn: () =>
+      fetchAll<GroupCompany>((from, to) =>
+        supabase.from('group_companies').select('id, group_id, company').order('company').order('id').range(from, to),
+      ),
   })
 
 export const useRelationships = () =>
   useQuery({
     queryKey: ['relationships'],
-    queryFn: () => q<Relationship[]>(supabase.from('relationships').select('*')),
+    queryFn: () => fetchAll<Relationship>((from, to) => supabase.from('relationships').select('*').order('id').range(from, to)),
   })
 
 /** Signed URLs for contact photos (private bucket). Keyed by storage path. */
@@ -543,8 +567,8 @@ export const api = {
     tagName?: string
     onProgress?: (done: number, total: number) => void
   }) {
-    const existing = await q<{ linkedin_url: string | null; first_name: string; last_name: string | null; company: string | null }[]>(
-      supabase.from('contacts').select('linkedin_url, first_name, last_name, company'),
+    const existing = await fetchAll<{ linkedin_url: string | null; first_name: string; last_name: string | null; company: string | null }>(
+      (from, to) => supabase.from('contacts').select('linkedin_url, first_name, last_name, company').order('id').range(from, to),
     )
     const urlSet = new Set(existing.filter((c) => c.linkedin_url).map((c) => c.linkedin_url!.toLowerCase()))
     const nameKey = (c: { first_name: string; last_name: string | null; company: string | null }) =>
@@ -727,23 +751,42 @@ export const api = {
   revokeApiToken: (id: string) =>
     q<null>(supabase.from('api_tokens').update({ revoked_at: new Date().toISOString() }).eq('id', id)),
 
+  /**
+   * Everything, every row — read a page at a time, so nothing past the first
+   * thousand is quietly left out. Photos are files rather than rows and aren't
+   * included; the contacts' photo paths are.
+   */
   async exportAll() {
-    const tables = [
-      'contacts',
-      'family_members',
-      'facts',
-      'work_history',
-      'interactions',
-      'interaction_participants',
-      'reminders',
-      'relationships',
-      'groups',
-      'group_members',
-      'tags',
-      'contact_tags',
-    ] as const
+    // Each table with the columns that order it uniquely, so pages don't overlap.
+    const tables: [string, string[]][] = [
+      ['contacts', ['id']],
+      ['family_members', ['id']],
+      ['facts', ['id']],
+      ['work_history', ['id']],
+      ['interactions', ['id']],
+      ['interaction_participants', ['interaction_id', 'contact_id']],
+      ['reminders', ['id']],
+      ['relationships', ['id']],
+      ['groups', ['id']],
+      ['group_members', ['group_id', 'contact_id']],
+      ['group_companies', ['id']],
+      ['tags', ['id']],
+      ['contact_tags', ['contact_id', 'tag_id']],
+      ['capture_drafts', ['id']],
+      ['capture_aliases', ['id']],
+    ]
     const out: Record<string, unknown> = { exported_at: new Date().toISOString() }
-    for (const t of tables) out[t] = await q<unknown[]>(supabase.from(t).select('*'))
-    return out
+    const counts: Record<string, number> = {}
+    for (const [t, keys] of tables) {
+      const rows = await fetchAll<unknown>((from, to) => {
+        let query = supabase.from(t).select('*')
+        for (const k of keys) query = query.order(k)
+        return query.range(from, to)
+      })
+      out[t] = rows
+      counts[t] = rows.length
+    }
+    out.counts = counts
+    return out as Record<string, unknown> & { counts: Record<string, number> }
   },
 }

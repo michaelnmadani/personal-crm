@@ -28,7 +28,8 @@ import { InteractionComposer } from '../components/InteractionComposer'
 import { Modal } from '../components/Modal'
 import { ReminderForm } from '../components/ReminderForm'
 import { ReminderItem } from '../components/ReminderItem'
-import { btnDanger, btnGhost, btnPrimary, card, chip, input } from '../components/ui'
+import { btnDanger, btnGhost, btnPrimary, card, chip, input, revealOnHover } from '../components/ui'
+import { ConfirmButton } from '../components/ConfirmButton'
 
 /** Score how likely `b` is a duplicate of `a`, so real duplicates surface first.
  *  Weighted toward matching surnames and first-name/initial overlap; company is a
@@ -175,13 +176,15 @@ function PhotoAvatar({ contact }: { contact: ContactOverview }) {
         />
       </label>
       {contact.photo_url && (
-        <button
-          className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-slate-800 border border-slate-600 grid place-items-center text-slate-400 hover:text-red-400 opacity-0 group-hover/avatar:opacity-100"
-          onClick={() => removePhoto.mutate(contact)}
-          aria-label="Remove photo"
+        <ConfirmButton
+          className="absolute -top-1 -right-1 rounded-full border grid place-items-center"
+          idleClassName="w-5 h-5 bg-slate-800 border-slate-600 text-slate-400 hover:text-red-400 [@media(hover:hover)]:opacity-0 group-hover/avatar:opacity-100 focus-visible:opacity-100"
+          armedClassName="px-2 py-0.5 bg-red-600 border-red-500 text-white text-[0.625rem] font-medium whitespace-nowrap"
+          onConfirm={() => removePhoto.mutate(contact)}
+          label="Remove photo"
         >
           <Icon name="x" className="w-3 h-3" />
-        </button>
+        </ConfirmButton>
       )}
       {upload.isPending && <p className="absolute -bottom-5 left-0 right-0 text-center text-[0.625rem] text-slate-500">uploading…</p>}
       {(upload.isError || removePhoto.isError) && (
@@ -350,7 +353,7 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
                   {fullName(person)}
                 </Link>
                 <button
-                  className="ml-auto opacity-0 group-hover:opacity-100 text-slate-600 hover:text-indigo-400"
+                  className={`ml-auto ${revealOnHover} text-slate-600 hover:text-indigo-400`}
                   onClick={() => {
                     setEditing(r.id)
                     setDraft(r.notes ?? '')
@@ -359,13 +362,13 @@ function ConnectionsSection({ contactId }: { contactId: string }) {
                 >
                   <Icon name="edit" className="w-3.5 h-3.5" />
                 </button>
-                <button
-                  className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400"
-                  onClick={() => remove.mutate(r.id)}
-                  aria-label="Remove connection"
+                <ConfirmButton
+                  idleClassName={`${revealOnHover} text-slate-600 hover:text-red-400`}
+                  onConfirm={() => remove.mutate(r.id)}
+                  label={`Remove connection to ${fullName(person)}`}
                 >
                   <Icon name="x" className="w-3.5 h-3.5" />
-                </button>
+                </ConfirmButton>
               </div>
               {editing === r.id ? (
                 <form onSubmit={saveNote} className="flex gap-2 mt-1">
@@ -469,13 +472,14 @@ function FamilyEditor({ contactId }: { contactId: string }) {
                 {age && <span className="text-slate-500"> — {age}</span>}
                 {f.notes && <span className="block text-xs text-slate-500">{f.notes}</span>}
               </span>
-              <button
-                className="ml-auto opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400"
-                onClick={() => remove.mutate(f.id)}
-                aria-label="Remove"
+              <ConfirmButton
+                className="ml-auto"
+                idleClassName={`${revealOnHover} text-slate-600 hover:text-red-400`}
+                onConfirm={() => remove.mutate(f.id)}
+                label={`Remove ${f.name}`}
               >
                 <Icon name="x" className="w-3.5 h-3.5" />
-              </button>
+              </ConfirmButton>
             </li>
           )
         })}
@@ -855,7 +859,7 @@ function WorkHistoryEditor({ contactId }: { contactId: string }) {
                 {w.notes && <span className="block text-xs text-slate-500">{w.notes}</span>}
               </span>
               <button
-                className="ml-auto opacity-0 group-hover:opacity-100 text-slate-600 hover:text-indigo-400"
+                className={`ml-auto ${revealOnHover} text-slate-600 hover:text-indigo-400`}
                 onClick={() => {
                   setEditing(w.id)
                   setAdding(false)
@@ -864,13 +868,13 @@ function WorkHistoryEditor({ contactId }: { contactId: string }) {
               >
                 <Icon name="edit" className="w-3.5 h-3.5" />
               </button>
-              <button
-                className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400"
-                onClick={() => remove.mutate(w.id)}
-                aria-label="Remove"
+              <ConfirmButton
+                idleClassName={`${revealOnHover} text-slate-600 hover:text-red-400`}
+                onConfirm={() => remove.mutate(w.id)}
+                label={`Remove role at ${w.company}`}
               >
                 <Icon name="x" className="w-3.5 h-3.5" />
-              </button>
+              </ConfirmButton>
             </li>
           ),
         )}
@@ -975,13 +979,14 @@ function FactsEditor({ contactId }: { contactId: string }) {
               {f.label}
             </span>
             <span className="text-slate-200 min-w-0 break-words">{f.value}</span>
-            <button
-              className="ml-auto opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400"
-              onClick={() => remove.mutate(f.id)}
-              aria-label="Remove"
+            <ConfirmButton
+              className="ml-auto"
+              idleClassName={`${revealOnHover} text-slate-600 hover:text-red-400`}
+              onConfirm={() => remove.mutate(f.id)}
+              label={`Remove ${f.label}`}
             >
               <Icon name="x" className="w-3.5 h-3.5" />
-            </button>
+            </ConfirmButton>
           </li>
         ))}
       </ul>
@@ -1327,7 +1332,7 @@ export function ContactProfile() {
                       </p>
                     )}
                   </div>
-                  <div className="flex gap-1 self-start opacity-0 group-hover:opacity-100">
+                  <div className="flex gap-1 self-start [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-within:opacity-100">
                     <button
                       className="text-slate-600 hover:text-indigo-300"
                       onClick={() => setEditingInteractionId(i.id)}
@@ -1336,13 +1341,13 @@ export function ContactProfile() {
                     >
                       <Icon name="edit" className="w-3.5 h-3.5" />
                     </button>
-                    <button
-                      className="text-slate-600 hover:text-red-400"
-                      onClick={() => deleteInteraction.mutate(i.id)}
-                      aria-label="Delete entry"
+                    <ConfirmButton
+                      confirmText="Delete?"
+                      onConfirm={() => deleteInteraction.mutate(i.id)}
+                      label={`Delete this ${i.kind}${i.title ? ` “${i.title}”` : ''}`}
                     >
                       <Icon name="trash" className="w-3.5 h-3.5" />
-                    </button>
+                    </ConfirmButton>
                   </div>
                 </li>
               )

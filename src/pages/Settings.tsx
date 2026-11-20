@@ -23,6 +23,7 @@ const THEME_LABELS: Record<Theme, string> = {
 
 export function Settings() {
   const [exporting, setExporting] = useState(false)
+  const [exported, setExported] = useState<{ ok: boolean; text: string } | null>(null)
   const [userEmail, setUserEmail] = useState('')
   const [theme, setTheme] = useState<Theme>(currentTheme)
   const [refreshing, setRefreshing] = useState(false)
@@ -68,9 +69,21 @@ export function Settings() {
 
   const exportAll = async () => {
     setExporting(true)
+    setExported(null)
     try {
       const data = await api.exportAll()
       download(`personal-crm-export-${format(new Date(), 'yyyy-MM-dd')}.json`, JSON.stringify(data, null, 2))
+      // Say what's in it, so a backup that's short is obvious at a glance.
+      const n = data.counts
+      const nf = (x: number | undefined) => (x ?? 0).toLocaleString()
+      setExported({
+        ok: true,
+        text:
+          `Saved ${nf(n.contacts)} contacts, ${nf(n.interactions)} timeline entries, ${nf(n.relationships)} connections, ` +
+          `${nf(n.reminders)} reminders and ${nf(n.contact_tags)} tag links.`,
+      })
+    } catch (e) {
+      setExported({ ok: false, text: `Export failed — nothing was saved. ${(e as Error).message}` })
     } finally {
       setExporting(false)
     }
@@ -183,6 +196,7 @@ export function Settings() {
             {exporting ? 'Exporting…' : 'Export all data'}
           </button>
         </div>
+        {exported && <p className={`text-sm ${exported.ok ? 'text-emerald-400' : 'text-red-400'}`}>{exported.text}</p>}
       </section>
 
       <AssistantAccess />
