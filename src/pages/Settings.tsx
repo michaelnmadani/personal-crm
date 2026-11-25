@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
-import { supabase } from '../lib/supabase'
+import { DEMO_EMAIL, supabase } from '../lib/supabase'
+import { NewPasswordForm } from '../components/NewPassword'
 import { api } from '../lib/hooks'
 import { download } from '../lib/utils'
 import { applyTheme, currentTheme, THEME_SWATCH, THEMES, type Theme } from '../lib/theme'
@@ -25,6 +26,7 @@ export function Settings() {
   const [exporting, setExporting] = useState(false)
   const [exported, setExported] = useState<{ ok: boolean; text: string } | null>(null)
   const [userEmail, setUserEmail] = useState('')
+  const [passwordChanged, setPasswordChanged] = useState(false)
   const [theme, setTheme] = useState<Theme>(currentTheme)
   const [refreshing, setRefreshing] = useState(false)
   const [textSize, setTextSize] = useState<TextSize>(currentTextSize)
@@ -182,6 +184,19 @@ export function Settings() {
           Sign out
         </button>
       </section>
+
+      {userEmail && userEmail !== DEMO_EMAIL && (
+        <section className={`${card} p-4 space-y-3`}>
+          <h2 className="text-sm font-semibold text-slate-300">Change password</h2>
+          {passwordChanged ? (
+            <p className="text-sm text-emerald-400">Password changed. Use the new one next time you sign in.</p>
+          ) : (
+            <div className="max-w-sm">
+              <NewPasswordForm onDone={() => setPasswordChanged(true)} submitLabel="Change password" />
+            </div>
+          )}
+        </section>
+      )}
 
       <section className={`${card} p-4 space-y-3`}>
         <h2 className="text-sm font-semibold text-slate-300">Import & export</h2>

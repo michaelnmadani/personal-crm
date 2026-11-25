@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import type { Session } from '@supabase/supabase-js'
-import { supabase } from './lib/supabase'
+import { arrivedFromReset, supabase } from './lib/supabase'
+import { ResetPasswordPage } from './components/NewPassword'
 import { AuthPage } from './pages/Auth'
 import { Layout } from './components/Layout'
 import { CatchUp } from './pages/CatchUp'
@@ -18,13 +19,19 @@ import { Inbox } from './pages/Inbox'
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [ready, setReady] = useState(false)
+  // Back from a password-reset email: signed in by the link, but a new
+  // password has to be chosen before anything else.
+  const [resetting, setResetting] = useState(arrivedFromReset)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setReady(true)
     })
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s))
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      setSession(s)
+      if (event === 'PASSWORD_RECOVERY') setResetting(true)
+    })
     return () => sub.subscription.unsubscribe()
   }, [])
 
@@ -32,6 +39,7 @@ export default function App() {
     return <div className="min-h-screen grid place-items-center text-slate-500">Loading…</div>
   }
   if (!session) return <AuthPage />
+  if (resetting) return <ResetPasswordPage onDone={() => setResetting(false)} />
 
   return (
     <Routes>
