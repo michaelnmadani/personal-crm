@@ -41,8 +41,26 @@ const DURATION_RE = /^\d+\s*(yrs?|years?|mos?|months?)(\s+\d+\s*(mos?|months?))?
 /** "Skills: Board Governance, +13 skills" — LinkedIn prints these under a role. */
 const SKILLS_RE = /^skills?\s*[:·]/i
 
+/**
+ * The newer form of the same line, with no "Skills:" in front: "Artificial
+ * Intelligence (AI), Project Management and +8 skills".
+ */
+const MORE_SKILLS_RE = /\+\s?\d+\s+skills?$/i
+
+/**
+ * A list, as LinkedIn's skills line is when it names just two or three and so
+ * has no "+N skills" to give it away: "Growth Strategies and Business Growth
+ * Strategies". Only ever asked about a line where a list is the likely reading.
+ */
+const looksLikeList = (line: string) => /,|\sand\s/i.test(line)
+
+const isSkillsLine = (line: string) => SKILLS_RE.test(line) || MORE_SKILLS_RE.test(line)
+
 /** The glyph someone started a line of their own role description with. */
 const DESC_BULLET_RE = /^[•■▪●○‣–—-]\s/
+
+/** "1. Annual strategic planning" — a numbered point in a role description. */
+const DESC_NUMBERED_RE = /^\d{1,2}[.)]\s/
 
 /** Strip LinkedIn's trailing "· 5 yrs 5 mos" and any employment type after a dot. */
 export const beforeDot = (s: string) => s.split('·')[0].trim()
@@ -85,7 +103,9 @@ function isNoise(line: string) {
 function isRoleDetail(line: string) {
   return (
     SKILLS_RE.test(line) ||
+    MORE_SKILLS_RE.test(line) ||
     DESC_BULLET_RE.test(line) ||
+    DESC_NUMBERED_RE.test(line) ||
     line.length > 120 ||
     // A sentence someone wrote about the job, not a title or an employer.
     (/[.!?]$/.test(line) && line.split(/\s+/).length >= 6)
@@ -150,6 +170,32 @@ export function looksLikeLocation(line: string) {
   return parts.length >= 2 && parts.length <= 4 && parts.every((p) => p.length >= 2 && p.length <= 40)
 }
 
+/** "Westpac Group · Full-time" — an employer line, since a job title never carries an employment type. */
+function namesEmploymentType(line: string) {
+  const parts = line.split('·').map((p) => p.trim())
+  return parts.length >= 2 && parts.slice(1).some((p) => NOISE_RE.test(p))
+}
+
+/**
+ * Inside a grouped block, with a role's title already found, is the line at `j`
+ * above it the skills line of the role before?
+ *
+ * A two-skill line reads just like a job title ("Senior Product and Project
+ * Manager" has an "and" too), so it is told apart by where it sits. Skills are
+ * the last thing LinkedIn prints for a role: right under its dates, location or
+ * description. A line after a skills line is the start of something new — the
+ * title of an entry that has left the group. So is any line above an employer
+ * that names its employment type ("Macquarie Bank · Full-time").
+ */
+function isSkillsOfRoleBefore(lines: Line[], j: number, taken: string) {
+  if (namesEmploymentType(taken) || !looksLikeList(lines[j].text)) return false
+  let k = j - 1
+  while (k >= 0 && isNoise(lines[k].text)) k--
+  if (k < 0) return false
+  const prev = lines[k].text
+  return readPeriod(prev) !== null || isLocationLine(lines, k) || (isRoleDetail(prev) && !isSkillsLine(prev))
+}
+
 /** Is the line at `j` the location LinkedIn prints under an entry's dates? */
 function isLocationLine(lines: Line[], j: number) {
   const prev = lines[j - 1]
@@ -198,6 +244,12 @@ export function parseLinkedInExperience(raw: string): WorkDraft[] {
       // of the role before) is a location, and the role above it is named by
       // the heading — so there is no employer to find here.
       if (above.length === 1 && groupFromHeading && isLocationLine(lines, j)) break
+      // Inside a grouped block a role has only its title above its dates, so a
+      // list sitting above that title may be the skills line of the role before —
+      // LinkedIn's "Growth Strategies and Business Growth Strategies", which has
+      // no "+N skills" to mark it. Taking it as a title would push the real
+      // title into the employer's place and lose the group for every role after.
+      if (above.length === 1 && groupFromHeading && isSkillsOfRoleBefore(lines, j, above[0])) break
       if (claimed.has(j) || isNoise(lines[j].text)) continue
       above.unshift(lines[j].text)
       if (lines[j].bullet) {
